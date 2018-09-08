@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Dennis van Gils
+17-04-2018
+"""
+
+import sys
+from pathlib import Path
+
+from PyQt5 import QtCore, QtGui
+from PyQt5 import QtWidgets as QtWid
+
+from DvG_debug_functions import ANSI
+from DvG_PyQt_controls import SS_TEXTBOX_READ_ONLY
+
+import DvG_dev_ThermoFlex_chiller__fun_RS232 as chiller_funtions
+import DvG_dev_ThermoFlex_chiller__PyQt_lib  as chiller_pyqt_lib
+
+# ------------------------------------------------------------------------------
+#   MainWindow
+# ------------------------------------------------------------------------------
+
+class MainWindow(QtWid.QWidget):
+    def __init__(self, parent=None, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.setGeometry(40, 60, 0, 0)
+        self.setWindowTitle("ThermoFlex chiller control")
+
+        # Top grid
+        self.lbl_title = QtWid.QLabel("ThermoFlex chiller control",
+            font=QtGui.QFont("Palatino", 14, weight=QtGui.QFont.Bold))
+        self.pbtn_exit = QtWid.QPushButton("Exit")
+        self.pbtn_exit.clicked.connect(self.close)
+        self.pbtn_exit.setMinimumHeight(30)
+
+        grid_top = QtWid.QGridLayout()
+        grid_top.addWidget(self.lbl_title, 0, 0)
+        grid_top.addWidget(self.pbtn_exit, 0, 1, QtCore.Qt.AlignRight)
+
+        # Round up full window
+        vbox = QtWid.QVBoxLayout(self)
+        vbox.addLayout(grid_top)
+        vbox.addLayout(chiller_pyqt.hbly_GUI)
+        vbox.addStretch(1)
+
+# ------------------------------------------------------------------------------
+#   about_to_quit
+# ------------------------------------------------------------------------------
+
+def about_to_quit():
+    print("About to quit")
+
+    # First make sure to process all pending events
+    app.processEvents()
+
+    # Close threads
+    chiller_pyqt.close_threads()
+
+    # Close device connections
+    try: chiller.close()
+    except: pass
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+#
+#   MAIN
+#
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+
+if __name__ == '__main__':
+    # Temperature setpoint limits in software, not on a hardware level
+    MIN_SETPOINT_DEG_C = 10     # [deg C]
+    MAX_SETPOINT_DEG_C = 40     # [deg C]
+
+    # Config file containing COM port address
+    PATH_CONFIG = Path("config/port_chiller.txt")
+
+    # The state of the chiller is polled with this time interval
+    UPDATE_INTERVAL_MS = 1000   # [ms]
+
+    # --------------------------------------------------------------------------
+    #   Connect to and set up ThermoFlex chiller
+    # --------------------------------------------------------------------------
+
+    chiller = chiller_funtions.ThermoFlex_chiller(
+            min_setpoint_degC=MIN_SETPOINT_DEG_C,
+            max_setpoint_degC=MAX_SETPOINT_DEG_C,
+            name='chiller')
+
+    if chiller.auto_connect(PATH_CONFIG):
+        chiller.begin()
+
+    # --------------------------------------------------------------------------
+    #   Create application
+    # --------------------------------------------------------------------------
+
+    app = 0    # Work-around for kernel crash when using Spyder IDE
+    app = QtWid.QApplication(sys.argv)
+    app.setFont(QtGui.QFont("Arial", 9))
+    app.setStyleSheet(SS_TEXTBOX_READ_ONLY)
+    app.aboutToQuit.connect(about_to_quit)
+
+    # For DEBUG info
+    QtCore.QThread.currentThread().setObjectName('MAIN')
+
+    # Create PyQt GUI interfaces and communication threads for the chiller
+    chiller_pyqt = chiller_pyqt_lib.ThermoFlex_chiller_pyqt(
+            dev=chiller,
+            update_interval_ms=UPDATE_INTERVAL_MS)
+
+    # For DEBUG info
+    chiller_pyqt.worker_state.DEBUG_color = ANSI.YELLOW
+    chiller_pyqt.worker_send.DEBUG_color = ANSI.CYAN
+
+    # Create window
+    window = MainWindow()
+
+    # --------------------------------------------------------------------------
+    #   Start threads
+    # --------------------------------------------------------------------------
+
+    if chiller.is_alive:
+        chiller_pyqt.thread_state.start()
+        chiller_pyqt.thread_send.start()
+
+    # --------------------------------------------------------------------------
+    #   Start the main GUI loop
+    # --------------------------------------------------------------------------
+
+    window.show()
+    sys.exit(app.exec_())
