@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""PyQt5 module to provide multithreaded communication and periodical data
+acquisition for a Keysight (former HP or Agilent) 34970A/34972A data
+acquisition/switch unit.
 """
-Dennis van Gils
-14-06-2018
-"""
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "08-09-2018"
+__version__     = "1.0.0"
 
 import queue
 #import time
