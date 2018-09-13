@@ -44,8 +44,8 @@ CONTENTS:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
-__version__     = "2.0.0"
+__date__        = "13-09-2018"
+__version__     = "2.1.0"
 
 import queue
 import numpy as np
@@ -54,6 +54,7 @@ from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
 
 # Short-hand alias for DEBUG information
 def curThreadName(): return QtCore.QThread.currentThread().objectName()
+def get_tick(): return QtCore.QDateTime.currentMSecsSinceEpoch()
 
 # ------------------------------------------------------------------------------
 #   Worker_DAQ
@@ -160,10 +161,14 @@ class Worker_DAQ(QtCore.QObject):
         self.function_to_run_each_update = DAQ_function_to_run_each_update
         self.timer_type = DAQ_timer_type
 
-        # Calculate the DAQ rate around every 1 sec
+        # Keep track of the obtained update interval
+        self.dev.obtained_DAQ_update_interval_ms = np.nan
+        self.prev_tick_DAQ_update = 0
+
+        # Keep track of the obtained DAQ rate around every 1 sec
         self.calc_DAQ_rate_every_N_iter = round(1e3/self.update_interval_ms)
-        self.dev.obtained_DAQ_rate = np.nan
-        self.prev_tick = 0
+        self.dev.obtained_DAQ_rate_Hz = np.nan
+        self.prev_tick_DAQ_rate = 0
 
         if self.DEBUG:
             dprint("Worker_DAQ  %s init: thread %s" %
@@ -191,18 +196,24 @@ class Worker_DAQ(QtCore.QObject):
                    (self.dev.name, self.dev.update_counter),
                    self.DEBUG_color)
 
+        # Keep track of the obtained DAQ update interval
+        now = get_tick()
+        self.dev.obtained_DAQ_update_interval_ms = (now -
+                                                    self.prev_tick_DAQ_update)
+        self.prev_tick_DAQ_update = now
+
         # Keep track of the obtained DAQ rate
         # Start at iteration 5 to ensure we have stabilized
-        now = QtCore.QDateTime.currentDateTime()
         if self.dev.update_counter == 5:
-            self.prev_tick = now
+            self.prev_tick_DAQ_rate = now
         elif (self.dev.update_counter %
               self.calc_DAQ_rate_every_N_iter == 5):
             self.dev.obtained_DAQ_rate = (self.calc_DAQ_rate_every_N_iter /
-                                          self.prev_tick.msecsTo(now) * 1e3)
-            self.prev_tick = now
+                                          (now - self.prev_tick_DAQ_rate) *
+                                          1e3)
+            self.prev_tick_DAQ_rate = now
 
-        # Check the alive counter
+        # Check the alive counte.
         if (self.dev.not_alive_counter >=
             self.dev.critical_not_alive_count):
             dprint("\nWorker_DAQ %s: Determined device is not alive anymore." %
