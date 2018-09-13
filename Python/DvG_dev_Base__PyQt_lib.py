@@ -57,6 +57,14 @@ def curThreadName(): return QtCore.QThread.currentThread().objectName()
 def get_tick(): return QtCore.QDateTime.currentMSecsSinceEpoch()
 
 # ------------------------------------------------------------------------------
+#   Dev_Base_pyqt
+# ------------------------------------------------------------------------------
+
+class Dev_Base_pyqt(QtCore.QObject):
+    # TO DO: implement this class and use as mixin in derived modules
+    pass
+
+# ------------------------------------------------------------------------------
 #   Worker_DAQ
 # ------------------------------------------------------------------------------
 
