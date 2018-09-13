@@ -27,7 +27,7 @@ from DvG_debug_functions import print_fancy_traceback as pft
 
 # Serial settings
 RS232_BAUDRATE = 115200
-RS232_TIMEOUT  = 2  # [s]
+RS232_TIMEOUT  = 0.4  # [s]
 RS232_RTSCTS   = True
 TERM_CHAR = '\r'
 
