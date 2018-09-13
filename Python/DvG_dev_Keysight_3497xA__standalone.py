@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Multithreaded PyQt5 GUI to interface with a a Keysight (former HP or Agilent)
+34970A/34972A data acquisition/switch unit.
 """
-Dennis van Gils
-14-06-2018
-"""
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "13-09-2018"
+__version__     = "1.0.0"
 
 import sys
+
 import visa
 
 from PyQt5 import QtCore, QtGui
@@ -56,27 +61,15 @@ class MainWindow(QtWid.QWidget):
 
 def about_to_quit():
     print("About to quit")
-
-    # First make sure to process all pending events
     app.processEvents()
-
-    # Close threads
-    mux_pyqt.close_threads()
-
-    # Close device connections
+    mux_pyqt.close_all_threads()
     try: mux.close()
     except: pass
-
-    # Close VISA resource manager
     try: rm.close()
     except: pass
 
 # ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-#
-#   MAIN
-#
-# ------------------------------------------------------------------------------
+#   Main
 # ------------------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -110,18 +103,19 @@ if __name__ == '__main__':
                 "rout:scan %s" % scan_list]
 
     # --------------------------------------------------------------------------
-    #   Connect to and set up Keysight 3497xA
+    #   Connect to Keysight 3497xA (mux)
     # --------------------------------------------------------------------------
 
     rm = visa.ResourceManager()
 
-    mux = K3497xA_functions.K3497xA(MUX_VISA_ADDRESS, "MUX 1")
+    mux = K3497xA_functions.K3497xA(MUX_VISA_ADDRESS, "MUX_1")
     if mux.connect(rm):
         mux.begin(MUX_SCPI_COMMANDS)
 
     # --------------------------------------------------------------------------
     #   Create application
     # --------------------------------------------------------------------------
+    QtCore.QThread.currentThread().setObjectName('MAIN')    # For DEBUG info
 
     app = 0    # Work-around for kernel crash when using Spyder IDE
     app = QtWid.QApplication(sys.argv)
@@ -129,27 +123,18 @@ if __name__ == '__main__':
     app.setStyleSheet(SS_TEXTBOX_READ_ONLY)
     app.aboutToQuit.connect(about_to_quit)
 
-    # For DEBUG info
-    QtCore.QThread.currentThread().setObjectName('MAIN')
+    # --------------------------------------------------------------------------
+    #   Set up communication threads for the mux
+    # --------------------------------------------------------------------------
 
-    # Create PyQt GUI interfaces and communication threads per 3497xA
-    mux_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
-            dev=mux, scanning_interval_ms=MUX_SCANNING_INTERVAL_MS)
+    mux_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(mux, MUX_SCANNING_INTERVAL_MS)
+    mux_pyqt.start_thread_worker_DAQ()
+    mux_pyqt.start_thread_worker_send()
 
-    # Create window
+    # --------------------------------------------------------------------------
+    #   Start the main GUI event loop
+    # --------------------------------------------------------------------------
+
     window = MainWindow()
-
-    # --------------------------------------------------------------------------
-    #   Start threads
-    # --------------------------------------------------------------------------
-
-    if mux.is_alive:
-        mux_pyqt.thread_state.start()
-        mux_pyqt.thread_send.start()
-
-    # --------------------------------------------------------------------------
-    #   Start the main GUI loop
-    # --------------------------------------------------------------------------
-
     window.show()
     sys.exit(app.exec_())

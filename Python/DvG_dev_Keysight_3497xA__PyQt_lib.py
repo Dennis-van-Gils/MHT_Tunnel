@@ -7,32 +7,19 @@ acquisition/switch unit.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "13-09-2018"
 __version__     = "1.0.0"
-
-import queue
-#import time
-
-#import logging
-#logging.basicConfig(filename='debug_info.log', level=logging.INFO)
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
-from PyQt5.QtCore import QDateTime
 
-from DvG_debug_functions import ANSI, dprint
 from DvG_PyQt_controls import (create_Toggle_button,
                                SS_TEXTBOX_ERRORS,
                                SS_TEXTBOX_READ_ONLY,
                                SS_GROUP)
+from DvG_debug_functions import dprint, print_fancy_traceback as pft
+
 import DvG_dev_Keysight_3497xA__fun_SCPI as K3497xA_functions
-
-# Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
-DEBUG = False
-
-# Short-hand aliases for DEBUG information
-curThread = QtCore.QThread.currentThread
-get_tick = QDateTime.currentDateTime
 
 # Monospace font
 FONT_MONOSPACE = QtGui.QFont("Monospace", 12, weight=QtGui.QFont.Bold)
@@ -45,66 +32,124 @@ FONT_MONOSPACE_SMALL.setStyleHint(QtGui.QFont.TypeWriter)
 # displayed as 'inf'
 INFINITY_CAP = 9.8e37
 
+# Short-hand alias for DEBUG information
+def get_tick(): return QtCore.QDateTime.currentMSecsSinceEpoch()
+
+# Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
+DEBUG_worker_DAQ  = True
+DEBUG_worker_send = True
+
 # ------------------------------------------------------------------------------
 #   K3497xA_pyqt
 # ------------------------------------------------------------------------------
 
-class K3497xA_pyqt(QtWid.QWidget):
-    """Collection of PyQt related functions and objects to provide a GUI and
-    automated data transmission/acquisition for a HP/Agilent/Keysight 34970A/
-    34972A data acquisition/switch unit, from now on referred to as the
-    'device' or 'mux' (multiplexer).
+class K3497xA_pyqt(QtCore.QObject):
+    """Manages multithreaded communication and periodical data acquisition for
+    a Keysight (former HP or Agilent) 34970A/34972A data acquisition/switch
+    unit, referred to as the 'device'.
 
-    Create the block of PyQt GUI elements for the device and handle the control
-    functionality. The main QWidget object is of type QGroupBox and resides at
-    'self.grpb'. This can be added to e.g. the main window of the app.
-    !! No device I/O operations are allowed at this class level. It solely
-    focusses on handling the GUI !!
+    In addition, it also provides PyQt5 GUI objects for control of the device.
+    These can be incorporated into your application.
 
-    All device I/O operations will be offloaded to separate 'Workers', which
-    reside as nested classes inside of this class. Instances of these workers
-    should be transferred to separate threads and not be run on the same thread
-    as the GUI. This will keep the GUI and main routine responsive, without
-    blocking when communicating with the device.
-    !! No changes to the GUI are allowed inside these nested classes !!
+    Extra functionality is provided to allow for automatic closing and opening
+    of a peripheral valve that could be in line with the mass flow controller.
+    This can be used to e.g. prevent liquid from entering the mass flow
+    controller from the upstream side when the flow rate has dropped to 0 for
+    some reason. Signals 'signal_valve_auto_close' and 'signal_valve_auto_open'
+    are emitted from within this class and the user can connect to these to
+    automate opening and closing of such a valve. There is a deadtime where the
+    auto close signal will not be emitted after a setpoint > 0 has been send,
+    because time might have to be given to the mass flow controller to get the
+    flow going.
 
-    Two workers are created as class members at init of this class:
-        - worker_send
-            Maintains a queue where desired device I/O operations can be put on
-            the stack. The worker will periodically send out the operations to
-            the device as scheduled in the queue.
+    All device I/O operations will be offloaded to 'workers', each running in
+    a newly created thread instead of in the main/GUI thread.
 
-        - worker_state
-            Periodically perform a scan cycle of the mux.
+        - Worker_DAQ:
+            Periodically acquires data from the device.
+
+        - Worker_send:
+            Maintains a thread-safe queue where desired device I/O operations
+            can be put onto, and sends the queued operations first in first out
+            (FIFO) to the device.
+
+    (*): See 'DvG_dev_Base__PyQt_lib.py' for details.
+
+    Args:
+        dev:
+            Reference to a 'DvG_dev_Keysight_3497xA__fun_SCPI.K3497xA' instance.
+
+        (*) DAQ_update_interval_ms
+        (*) DAQ_critical_not_alive_count
+        (*) DAQ_timer_type
+
+        extra_MUX_process_function:
+            TODO: write description
+
+    Class instances:
+        (*) worker_DAQ
+        (*) worker_send
+
+    Main methods:
+        (*) start_thread_worker_DAQ(...)
+        (*) start_thread_worker_send(...)
+        (*) close_all_threads()
+
+    Main GUI objects:
+        qgrp (PyQt5.QtWidgets.QGroupBox)
+
+    Main attributes:
+        self.worker_DAQ.ENA_periodic_scanning:
+            TODO: write description
+
+    Signals:
+        (*) worker_DAQ.signal_DAQ_updated()
+        (*) worker_DAQ.signal_connection_lost()
+
+    Slots:
+        worker_DAQ.start_scanning():
+            TODO: write description
+
+        worker_DAQ.stop_scanning():
+            TODO: write description
     """
+    from DvG_dev_Base__PyQt_lib import (Worker_DAQ,
+                                        Worker_send,
+                                        create_thread_worker_DAQ,
+                                        create_thread_worker_send,
+                                        start_thread_worker_DAQ,
+                                        start_thread_worker_send,
+                                        close_all_threads)
 
-    def __init__(self, dev: K3497xA_functions.K3497xA,
-                 scanning_interval_ms=1000,
-                 DEBUG_color=ANSI.YELLOW,
+    def __init__(self,
+                 dev: K3497xA_functions.K3497xA,
+                 DAQ_update_interval_ms=1000,
+                 DAQ_critical_not_alive_count=3,
+                 DAQ_timer_type=QtCore.Qt.CoarseTimer,
+                 extra_MUX_process_function=None,
                  parent=None):
         super(K3497xA_pyqt, self).__init__(parent=parent)
 
-        # Store reference to 'K3497xA_functions.K3497xA()' instance
         self.dev = dev
-
-        # Create mutex for proper multithreading
         self.dev.mutex = QtCore.QMutex()
 
-        # Terminal text color for DEBUG information
-        self.DEBUG_color = DEBUG_color
+        self.worker_DAQ = self.Worker_DAQ(
+                dev,
+                DAQ_update_interval_ms,
+                self.DAQ_update,
+                DAQ_critical_not_alive_count,
+                DAQ_timer_type,
+                DEBUG=DEBUG_worker_DAQ)
 
-        # Periodically query the device for its state.
-        # !! To be put in a seperate thread !!
-        self.worker_state = self.Worker_state(dev, scanning_interval_ms,
-                                              DEBUG_color)
+        self.worker_DAQ.extra_MUX_process_function = extra_MUX_process_function
+        self.worker_DAQ.ENA_periodic_scanning = False
 
-        # Maintains a queue where desired device I/O operations can be put on
-        # the stack. The worker will periodically send out the operations to the
-        # device as scheduled in the queue.
-        # !! To be put in a seperate thread !!
-        self.worker_send = self.Worker_send(dev, DEBUG_color)
+        self.worker_send = self.Worker_send(
+                dev,
+                self.alt_process_jobs_function,
+                DEBUG=DEBUG_worker_send)
 
-        # String format to use for the readings in the table widget
+        # String format to use for the readings in the table widget.
         # When type is a single string, all rows will use this format.
         # When type is a list of strings, rows will be formatted consecutively.
         self.table_readings_format = "%.3e"
@@ -112,7 +157,7 @@ class K3497xA_pyqt(QtWid.QWidget):
         # Create the block of GUI elements for the device. The main QWidget
         # object is of type QGroupBox and resides at 'self.grpb'
         self.create_GUI()
-        self.connect_signals_to_slots()
+        self.worker_DAQ.signal_DAQ_updated.connect(self.update_GUI)
 
         # Populate the table view with QTableWidgetItems.
         # I.e. add the correct number of rows to the table depending on the
@@ -125,29 +170,150 @@ class K3497xA_pyqt(QtWid.QWidget):
         # Update GUI immediately, instead of waiting for the first refresh
         self.update_GUI()
 
-        # Create and set up threads
-        if self.dev.is_alive:
-            self.thread_state = QtCore.QThread()
-            self.thread_state.setObjectName("%s state" % self.dev.name)
-            self.worker_state.moveToThread(self.thread_state)
-            self.thread_state.started.connect(self.worker_state.run)
-
-            self.thread_send = QtCore.QThread()
-            self.thread_send.setObjectName("%s send" % self.dev.name)
-            self.worker_send.moveToThread(self.thread_send)
-            self.thread_send.started.connect(self.worker_send.run)
-        else:
-            self.thread_state = None
-            self.thread_send = None
+        self.create_thread_worker_DAQ()
+        self.create_thread_worker_send()
 
     # --------------------------------------------------------------------------
-    #   Create QGroupBox with controls
+    #   start_scanning
+    # --------------------------------------------------------------------------
+
+    @QtCore.pyqtSlot()
+    def start_scanning(self):
+        """
+        # [DISABLED CODE]
+        # Recreate the worker timer and acquire new samples immediately,
+        # instead of waiting for the next tick to occur of the 'old' timer.
+        # NOTE: Would love to stop the old timer first, but for some strange
+        # reason the very first Qtimer appears to be running in another
+        # thread than the 'worker_state' thread, eventhough the routine in
+        # K3497xA_pyqt.__init__ has finished moving the worker_state thread.
+        # When timer is running in another thread than 'this' one, an
+        # exception is thrown py Python saying we can't stop the timer from
+        # another thread. Hence, I reassign a new Qtimer and hope that the
+        # old timer is garbage collected all right.
+        self.timer.stop()  # Does not work 100% of the time!
+        """
+
+        self.worker_DAQ.ENA_periodic_scanning = True
+        self.worker_DAQ.signal_DAQ_updated.emit() # Show we are scanning
+        QtWid.QApplication.processEvents()
+
+        """
+        # [DISABLED CODE]
+        # Disabled the recreation of the timer, because of not
+        # understood behavior. The first time iteration of every newly
+        # created QTimer seems to be running in the MAIN thread while
+        # subsequent iterations take place in the Worker_state thread.
+        # This might lead to program instability? Not sure. Simply disabled
+        # for now.
+        self.timer = QtCore.QTimer()            # Create new timer
+        self.timer.setInterval(self.scanning_interval_ms)
+        self.timer.timeout.connect(self.update)
+        self.timer.start()
+        self.update()  # Kickstart at t = 0, because timer doesn't fire now
+        """
+
+    # --------------------------------------------------------------------------
+    #   stop_scanning
+    # --------------------------------------------------------------------------
+
+    @QtCore.pyqtSlot()
+    def stop_scanning(self):
+        self.worker_DAQ.ENA_periodic_scanning = False
+        self.worker_DAQ.signal_DAQ_updated.emit() # Show we stopped scanning
+        QtWid.QApplication.processEvents()
+
+    # --------------------------------------------------------------------------
+    #   DAQ_update
+    # --------------------------------------------------------------------------
+
+    def DAQ_update(self):
+        tick = get_tick()
+
+        # Clear input and output buffers of the device. Seems to resolve
+        # intermittent communication time-outs.
+        self.dev.device.clear()
+
+        success = True
+        if self.worker_DAQ.ENA_periodic_scanning:
+            success &= self.dev.init_scan()                 # Init scan
+
+            if success:
+                self.dev.wait_for_OPC()                     # Wait for OPC
+                if self.worker_DAQ.DEBUG:
+                    tock = get_tick()
+                    dprint("opc? in: %i" % (tock - tick))
+                    tick = tock
+
+                success &= self.dev.fetch_scan()            # Fetch scan
+                if self.worker_DAQ.DEBUG:
+                    tock = get_tick()
+                    dprint("fetc in: %i" % (tock - tick))
+                    tick = tock
+
+            if success:
+                self.dev.wait_for_OPC()                     # Wait for OPC
+                if self.worker_DAQ.DEBUG:
+                    tock = get_tick()
+                    dprint("opc? in: %i" % (tock - tick))
+                    tick = tock
+
+        if success:
+            # Do not throw additional timeout exceptions when
+            # .init_scan() might have already failed. Hence this check
+            # for no success.
+            self.dev.query_all_errors_in_queue()            # Query errors
+            if self.worker_DAQ.DEBUG:
+                tock = get_tick()
+                dprint("err? in: %i" % (tock - tick))
+                tick = tock
+
+            # The next statement seems to trigger timeout, but very
+            # intermittently (~once per 20 minutes). After this timeout,
+            # everything times out.
+            #self.dev.wait_for_OPC()
+            #if self.worker_DAQ.DEBUG:
+            #    tock = get_tick()
+            #    dprint("opc? in: %i" % (tock - tick))
+            #    tick = tock
+
+            # NOTE: Another work-around to intermittent time-outs might
+            # be sending self.dev.clear() every iter to clear the input and
+            # output buffers. This is now done at the start of this function.
+
+        # Additional and optional external function to be run
+        if self.worker_DAQ.extra_MUX_process_function is not None:
+            self.worker_DAQ.extra_MUX_process_function()
+
+        if self.worker_DAQ.DEBUG:
+            tock = get_tick()
+            dprint("extf in: %i" % (tock - tick))
+            tick = tock
+
+        return success
+
+    # --------------------------------------------------------------------------
+    #   alt_process_jobs_function
+    # --------------------------------------------------------------------------
+
+    def alt_process_jobs_function(self, func, args):
+        # Send I/O operation to the device
+        locker = QtCore.QMutexLocker(self.dev.mutex)
+        try:
+            func(*args)
+            self.dev.wait_for_OPC()                         # Wait for OPC
+        except Exception as err:
+            pft(err)
+        locker.unlock()
+
+    # --------------------------------------------------------------------------
+    #   create_GUI
     # --------------------------------------------------------------------------
 
     def create_GUI(self):
         #  Groupbox containing 'front-panel' controls
         # --------------------------------------------
-        self.grpb = QtWid.QGroupBox(self)
+        self.grpb = QtWid.QGroupBox()
         self.grpb.setTitle(self.dev.name)
         self.grpb.setStyleSheet(SS_GROUP)
 
@@ -177,6 +343,11 @@ class K3497xA_pyqt(QtWid.QWidget):
         self.pbtn_reinit        = QtWid.QPushButton("Reinitialize")
         self.lbl_update_counter = QtWid.QLabel("0")
         self.pbtn_debug_test    = QtWid.QPushButton("Debug test")
+
+        self.pbtn_start_scan.clicked.connect(self.process_pbtn_start_scan)
+        self.pbtn_ackn_errors.clicked.connect(self.process_pbtn_ackn_errors)
+        self.pbtn_reinit.clicked.connect(self.process_pbtn_reinit)
+        self.pbtn_debug_test.clicked.connect(self.process_pbtn_debug_test)
 
         i = 0
         p  = {'alignment': QtCore.Qt.AlignLeft + QtCore.Qt.AlignVCenter}
@@ -231,7 +402,7 @@ class K3497xA_pyqt(QtWid.QWidget):
         self.SCPI_commands.setPlainText("%s" %
                                         '\n'.join(self.dev.SCPI_setup_commands))
         self.scanning_interval_ms.setText("%i" %
-                                          self.worker_state.scanning_interval_ms)
+                                          self.worker_DAQ.update_interval_ms)
 
     # --------------------------------------------------------------------------
     #   Table widget related
@@ -267,7 +438,7 @@ class K3497xA_pyqt(QtWid.QWidget):
         Not locking the mutex might speed up the program.
         """
         if self.dev.is_alive:
-            if (self.worker_state.ENA_periodic_scanning):
+            if (self.worker_DAQ.ENA_periodic_scanning):
                 self.lbl_mux_state.setText("Scanning")
                 self.pbtn_start_scan.setChecked(True)
             else:
@@ -280,7 +451,7 @@ class K3497xA_pyqt(QtWid.QWidget):
                                      '\n'.join(self.dev.state.all_errors))
 
             self.obtained_interval_ms.setText(
-                    "%i" % self.worker_state.obtained_scanning_interval_ms)
+                    "%.0f" % self.dev.obtained_DAQ_update_interval_ms)
             self.lbl_update_counter.setText("%s" % self.dev.update_counter)
 
             for i in range(len(self.dev.state.all_scan_list_channels)):
@@ -309,12 +480,14 @@ class K3497xA_pyqt(QtWid.QWidget):
     #   GUI functions
     # --------------------------------------------------------------------------
 
+    @QtCore.pyqtSlot()
     def process_pbtn_start_scan(self):
         if self.pbtn_start_scan.isChecked():
-            self.worker_state.start_scanning()
+            self.start_scanning()
         else:
-            self.worker_state.stop_scanning()
+            self.stop_scanning()
 
+    @QtCore.pyqtSlot()
     def process_pbtn_ackn_errors(self):
         # Lock the dev mutex because string operations are not atomic
         locker = QtCore.QMutexLocker(self.dev.mutex)
@@ -322,6 +495,7 @@ class K3497xA_pyqt(QtWid.QWidget):
         self.errors.setPlainText('')
         self.errors.setReadOnly(False)   # To change back to regular colors
 
+    @QtCore.pyqtSlot()
     def process_pbtn_reinit(self):
         str_msg = ("Are you sure you want reinitialize the multiplexer?\n\n"
                    "This would abort the current scan, reset the device\n"
@@ -333,336 +507,11 @@ class K3497xA_pyqt(QtWid.QWidget):
 
         if reply == QtWid.QMessageBox.Yes:
             self.pbtn_start_scan.setChecked(False)
-            self.worker_state.stop_scanning()
-            self.worker_send.queue.put((self.dev.wait_for_OPC,))
-            self.worker_send.queue.put((self.dev.begin,))
+            self.stop_scanning()
+            self.worker_send.add_to_queue(self.dev.wait_for_OPC)
+            self.worker_send.add_to_queue(self.dev.begin)
+            self.worker_send.process_queue()
 
+    @QtCore.pyqtSlot()
     def process_pbtn_debug_test(self):
-        self.worker_send.queue.put((self.dev.write, "blabla"))
-
-    # --------------------------------------------------------------------------
-    #   connect_signals_to_slots
-    # --------------------------------------------------------------------------
-
-    def connect_signals_to_slots(self):
-        self.pbtn_start_scan.clicked.connect(self.process_pbtn_start_scan)
-        self.pbtn_ackn_errors.clicked.connect(self.process_pbtn_ackn_errors)
-        self.pbtn_reinit.clicked.connect(self.process_pbtn_reinit)
-        self.pbtn_debug_test.clicked.connect(self.process_pbtn_debug_test)
-
-        self.worker_state.signal_GUI_update.connect(self.update_GUI)
-
-    # --------------------------------------------------------------------------
-    #   Worker_send
-    # --------------------------------------------------------------------------
-
-    class Worker_send(QtCore.QObject):
-        """No changes to the GUI are allowed inside this class!
-        """
-
-        def __init__(self, dev: K3497xA_functions.K3497xA,
-                     DEBUG_color=ANSI.YELLOW):
-            super().__init__(None)
-
-            self.dev = dev
-            self.running = True
-
-            # Put a 'sentinel' value in the queue to signal the end. This way we
-            # can prevent a Queue.Empty exception being thrown later on when we
-            # will read the queue till the end.
-            self.sentinel = None
-            self.queue = queue.Queue()
-            self.queue.put(self.sentinel)
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                dprint("Worker_send  %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_send  %s run : thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-            while self.running:
-                #if DEBUG:
-                #    dprint("Worker_send  %s queued: %s" %
-                #           (self.dev.name, self.queue.qsize() - 1),
-                #           self.DEBUG_color)
-
-                # Process all jobs until the queue is empty
-                for job in iter(self.queue.get_nowait, self.sentinel):
-                    func = job[0]
-                    args = job[1:]
-
-                    # Send I/O operation to the device
-                    if DEBUG:
-                        dprint("Worker_send  %s: %s %s" %
-                               (self.dev.name, func.__name__, args),
-                               self.DEBUG_color)
-                    locker = QtCore.QMutexLocker(self.dev.mutex)
-                    func(*args)
-                    self.dev.wait_for_OPC()
-                    locker.unlock()
-                self.queue.put(self.sentinel)  # Put sentinel back in
-
-                # Slow down thread
-                QtCore.QThread.msleep(50)
-
-            if DEBUG:
-                dprint("Worker_send  %s: done running" % self.dev.name,
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def stop(self):
-            self.running = False
-
-    # --------------------------------------------------------------------------
-    #   Worker_state
-    # --------------------------------------------------------------------------
-
-    class Worker_state(QtCore.QObject):
-        """This Worker will periodically query the device for errors and it will
-        periodically perform scans of the mux as soon as 'start_scanning' has
-        been called.
-        No changes to the GUI are allowed inside this class!
-        """
-        signal_GUI_update = QtCore.pyqtSignal()
-        #connection_lost = QtCore.pyqtSignal()
-
-        def __init__(self, dev: K3497xA_functions.K3497xA,
-                     scanning_interval_ms=1000,
-                     DEBUG_color=ANSI.CYAN):
-            super().__init__(None)
-
-            self.dev = dev
-            self.dev.update_counter = 0
-            self.scanning_interval_ms = scanning_interval_ms
-
-            # Additional and optional function to be run when this Worker is
-            # performing the 'update' method.
-            # This can be used to e.g. parse the recently fetched scan data
-            # and/or perform data validity checks asap or add data points to
-            # chart arrays.
-            # No changes to the GUI are allowed inside this function!
-            # [None]: no additional function will be run.
-            # [Function handle]: this function will be invoked.
-            self.external_function_to_run_in_update = None
-
-            # Keep track of the effective scanning interval
-            self.obtained_scanning_interval_ms = 0
-            self.prev_time_of_scan = QDateTime.currentDateTime()
-
-            # Is continuous periodic scanning switched on?
-            self.ENA_periodic_scanning = False
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                dprint("Worker_state %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_state %s run : thread %s" %
-                   (self.dev.name, curThread().objectName()),
-                   self.DEBUG_color)
-
-            self.timer = QtCore.QTimer()
-            self.timer.setInterval(self.scanning_interval_ms)
-            self.timer.timeout.connect(self.update)
-            self.timer.start()
-
-        @QtCore.pyqtSlot()
-        def start_scanning(self):
-            # Recreate the worker timer and acquire new samples immediately,
-            # instead of waiting for the next tick to occur of the 'old' timer
-
-            # Note: Would love to stop the old timer first, but for some strange
-            # reason the very first Qtimer appears to be running in another
-            # thread than the 'worker_state' thread, eventhough the routine in
-            # K3497xA_pyqt.__init__ has finished moving the worker_state thread.
-            # When timer is running in another thread than 'this' one, an
-            # exception is thrown py Python saying we can't stop the timer from
-            # another thread. Hence, I reassign a new Qtimer and hope that the
-            # old timer is garbage collected all right.
-            #self.timer.stop()  # Note: does not work 100% of the time
-
-            self.ENA_periodic_scanning = True
-            self.signal_GUI_update.emit()           # Show we are scanning
-            QtWid.QApplication.processEvents()
-
-            """
-            # NOTE: disabled the recreation of the timer, because of not
-            # understood behavior. The first time iteration of every newly
-            # created QTimer seems to be running in the MAIN thread while
-            # subsequent iterations take place in the Worker_state thread.
-            # This might lead to program instability? Not sure. Simply disabled
-            # for now.
-            self.timer = QtCore.QTimer()            # Create new timer
-            self.timer.setInterval(self.scanning_interval_ms)
-            self.timer.timeout.connect(self.update)
-            self.timer.start()
-
-            self.update()  # Kickstart at t = 0, because timer doesn't fire now
-            """
-
-        @QtCore.pyqtSlot()
-        def stop_scanning(self):
-            self.ENA_periodic_scanning = False
-            self.signal_GUI_update.emit()           # Show we stopped scanning
-            QtWid.QApplication.processEvents()
-
-        def update(self):
-            DEBUG_LOCAL = False
-            self.dev.update_counter += 1
-
-            # Keep track of the effective scanning interval
-            tick = get_tick()
-            self.obtained_scanning_interval_ms = (
-                    self.prev_time_of_scan.msecsTo(tick))
-            self.prev_time_of_scan = tick
-
-            if DEBUG:
-                dprint("Worker_state %s: iter %i" %
-                       (self.dev.name, self.dev.update_counter),
-                       self.DEBUG_color)
-
-            if DEBUG_LOCAL:
-                tick = get_tick()
-                dprint(self.dev.update_counter)
-                #logging.info(self.dev.update_counter)
-                #logging.info(tick.toString("yyMMdd_HHmmss"))
-
-            locker = QtCore.QMutexLocker(self.dev.mutex)
-            if DEBUG_LOCAL:
-                tock = get_tick()
-                dprint("lock in: %i" % tick.msecsTo(tock))
-                #logging.info("lock in: %i" % tick.msecsTo(tock))
-                tick = tock
-
-            # Clear input and output buffers of the device. Seems to resolve
-            # intermittent communication time-outs.
-            self.dev.device.clear()
-
-            success = True
-            if self.ENA_periodic_scanning:
-                success &= self.dev.init_scan()
-                if DEBUG_LOCAL:
-                    tock = get_tick();
-                    dprint("init in: %i" % tick.msecsTo(tock))
-                    #logging.info("init in: %i" % tick.msecsTo(tock))
-                    tick = tock
-
-                if success:
-                    self.dev.wait_for_OPC()
-                    if DEBUG_LOCAL:
-                        tock = get_tick()
-                        dprint("opc? in: %i" % tick.msecsTo(tock))
-                        #logging.info("opc? in: %i" % tick.msecsTo(tock))
-                        tick = tock
-
-                    success &= self.dev.fetch_scan()
-                    if DEBUG_LOCAL:
-                        tock = get_tick()
-                        dprint("fetc in: %i" % tick.msecsTo(tock))
-                        #logging.info("fetc in: %i" % tick.msecsTo(tock))
-                        tick = tock
-
-                if success:
-                    self.dev.wait_for_OPC()
-                    if DEBUG_LOCAL:
-                        tock = get_tick()
-                        dprint("opc? in: %i" % tick.msecsTo(tock))
-                        #logging.info("opc? in: %i" % tick.msecsTo(tock))
-                        tick = tock
-
-            if success:
-                # Do not throw additional timeout exceptions when
-                # .init_scan() might have already failed. Hence this check
-                # for no success.
-                self.dev.query_all_errors_in_queue()
-                if DEBUG_LOCAL:
-                    tock = get_tick()
-                    dprint("err? in: %i" % tick.msecsTo(tock))
-                    #logging.info("err? in: %i" % tick.msecsTo(tock))
-                    tick = tock
-
-                # The next statement seems to trigger timeout, but very
-                # intermittently (~once per 20 minutes). After this timeout,
-                # everything times out.
-                #self.dev.wait_for_OPC()
-                #if DEBUG_LOCAL:
-                #    dprint("opc? in: %i" %
-                #           tick.msecsTo(QDateTime.currentDateTime()))
-                #    tick = QDateTime.currentDateTime()
-
-                # NOTE: Another work-around to intermittent time-outs might
-                # be sending device.clear() every iter to clear the input and
-                # output buffers
-
-            # Additional and optional external function to be run
-            if self.external_function_to_run_in_update is not None:
-                self.external_function_to_run_in_update()
-
-            if DEBUG_LOCAL:
-                tock = get_tick()
-                dprint("extf in: %i" % tick.msecsTo(tock))
-                #logging.info("extf in: %i" % tick.msecsTo(tock))
-                tick = tock
-
-            locker.unlock()
-
-            if DEBUG_LOCAL:
-                if self.obtained_scanning_interval_ms > 1500:
-                    color = ANSI.RED
-                    #logging.info("WARNING:WARNING %i\n" %
-                    #             self.obtained_scanning_interval_ms)
-                else:
-                    color = ANSI.WHITE
-                    #logging.info("%i\n" % self.obtained_scanning_interval_ms)
-                dprint("%i\n" % self.obtained_scanning_interval_ms, color)
-
-            """
-            if not success:
-                # Connection lost
-                # NOTE: NOT YET IMPLEMENTED
-                self.connection_lost.emit()
-                return
-            """
-
-            self.signal_GUI_update.emit()
-
-    # --------------------------------------------------------------------------
-    #   close_threads
-    # --------------------------------------------------------------------------
-
-    def close_threads(self):
-        # Close thread_state
-        if self.thread_state is not None:
-            thread_name = self.thread_state.objectName()
-            self.thread_state.quit()
-            print("Closing thread %-13s: " % thread_name, end='')
-            if self.thread_state.wait(5000):
-                print("done.\n", end='')
-            else:
-                print("FAILED.\n", end='')
-
-        # Close thread_send
-        if self.thread_send is not None:
-            thread_name = self.thread_send.objectName()
-            self.worker_send.stop()
-            self.thread_send.quit()
-            print("Closing thread %-13s: " % thread_name, end='')
-            if self.thread_send.wait(5000):
-                print("done.\n", end='')
-            else:
-                print("FAILED.\n", end='')
+        self.worker_send.queued_instruction(self.dev.write, "junk")
