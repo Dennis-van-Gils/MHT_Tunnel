@@ -1326,27 +1326,31 @@ def fill_TC_chart_with_random_data():
 
 def _(): pass # Spyder IDE outline divider
 # ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-#
-#   MAIN
-#
-# ------------------------------------------------------------------------------
+#   Main
 # ------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    # Set this process priority to maximum in the operating system
-    print("PID: %s" % os.getpid())
+    # Set priority of this process to maximum in the operating system
+    print("PID: %s\n" % os.getpid())
     try:
         proc = psutil.Process(os.getpid())
-        if os.name == "nt": # Windows
-            proc.nice(psutil.REALTIME_PRIORITY_CLASS)
-        else:               # Other OS's
-            proc.nice(-20)
+        if os.name == "nt": proc.nice(psutil.REALTIME_PRIORITY_CLASS) # Windows
+        else: proc.nice(-20)                                          # Other
     except:
-        print("Warning: Could not set process to maximum priority.")
+        print("Warning: Could not set process to maximum priority.\n")
 
     # --------------------------------------------------------------------------
-    #   Connect to Arduino(s)
+    #   Create application
+    # --------------------------------------------------------------------------
+    QtCore.QThread.currentThread().setObjectName('MAIN')    # For DEBUG info
+
+    app = 0    # Work-around for kernel crash when using Spyder IDE
+    app = QtGui.QApplication(sys.argv)
+    app.setFont(MHT_tunnel_GUI.FONT_DEFAULT)
+    app.aboutToQuit.connect(about_to_quit)
+
+    # --------------------------------------------------------------------------
+    #   Connect to Arduinos
     # --------------------------------------------------------------------------
 
     ard1 = Arduino_functions.Arduino(name="Ard 1", baudrate=115200)
@@ -1362,36 +1366,52 @@ if __name__ == '__main__':
         print("Exiting...\n")
         sys.exit(0)
 
+    ards_pyqt = Arduino_pyqt_lib.Arduino_pyqt(ard1,
+                                              ard2,
+                                              C.UPDATE_INTERVAL_ARDUINOS,
+                                              my_Arduino_DAQ_update)
+    ards_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI)
+    ards_pyqt.worker_DAQ.signal_connection_lost.connect(notify_connection_lost)
+
     # --------------------------------------------------------------------------
-    #   Connect to and set up peripheral devices
+    #   Connect to peripheral devices
     # --------------------------------------------------------------------------
 
-    # Open VISA resource manager
-    rm = visa.ResourceManager()
+    rm = visa.ResourceManager()    # Open VISA resource manager
 
-    # ThermoFlex chiller
+    # -----------------------------------
+    #   ThermoFlex chiller
+    # -----------------------------------
+
     chiller = chiller_functions.ThermoFlex_chiller(
                                     min_setpoint_degC=C.CHILLER_MIN_TEMP_DEG_C,
                                     max_setpoint_degC=C.CHILLER_MAX_TEMP_DEG_C,
                                     name="chiller")
-
     if chiller.auto_connect(path_config=C.PATH_CONFIG_CHILLER):
         chiller.begin()
 
-    # Bronkhorst mass flow controller
-    mfc = mfc_functions.Bronkhorst_MFC(name="MFC")
+    chiller_pyqt = chiller_pyqt_lib.ThermoFlex_chiller_pyqt(
+            dev=chiller, update_interval_ms=C.UPDATE_INTERVAL_CHILLER)
+    chiller_pyqt.worker_state.signal_GUI_update.connect(
+            update_GUI_chiller_extras)
 
-    if mfc.auto_connect(path_config=C.PATH_CONFIG_MFC_1):
+    # -----------------------------------
+    #   Bronkhorst mass flow controller
+    # -----------------------------------
+
+    mfc = mfc_functions.Bronkhorst_MFC(name="MFC")
+    if mfc.auto_connect(path_config=C.PATH_CONFIG_MFC_1,
+                        match_serial_str=C.SERIAL_MFC_1):
         mfc.begin()
 
-    # Picotech PT-104
-    pt104 = pt104_functions.PT104(name="PT104")
+    mfc_pyqt = mfc_pyqt_lib.Bronkhorst_MFC_pyqt(mfc, C.UPDATE_INTERVAL_MFC)
+    mfc_pyqt.signal_valve_auto_open.connect(process_mfc_auto_open_valve)
+    mfc_pyqt.signal_valve_auto_close.connect(close_all_bubblers)
 
-    if pt104.connect(C.PT104_IP_ADDRESS, C.PT104_PORT):
-        pt104.begin()
-        pt104.start_conversion(C.PT104_ENA_CHANNELS, C.PT104_GAIN_CHANNELS)
+    # -----------------------------------
+    #   Keysight power supplies
+    # -----------------------------------
 
-    # Keysight power supplies
     psu1 = N8700_functions.PSU(visa_address=C.VISA_ADDRESS_PSU_1,
                                path_config=C.PATH_CONFIG_PSU_1,
                                name="PSU 1")
@@ -1408,12 +1428,16 @@ if __name__ == '__main__':
             psu.read_config_file()
             psu.begin()
 
-    # Keysight 3497xA data acquisition/switch units, aka multiplexers or 'mux'es
-    mux1 = K3497xA_functions.K3497xA(C.MUX_1_VISA_ADDRESS, name="MUX 1")
-    if mux1.connect(rm):
-        mux1.begin(C.MUX_1_SCPI_COMMANDS)
+    psus_pyqt = list()
+    DEBUG_colors = (ANSI.YELLOW, ANSI.CYAN, ANSI.GREEN)
+    for i in range(len(psus)):
+        psus_pyqt.append(N8700_pyqt_lib.PSU_pyqt(
+                dev=psus[i], DEBUG_color=DEBUG_colors[i]))
 
-    # Compax3 traverse controllers
+    # -----------------------------------
+    #   Compax3 traverse controllers
+    # -----------------------------------
+
     trav_horz = compax3_functions.Compax3_traverse(name="TRAV HORZ")
     trav_vert = compax3_functions.Compax3_traverse(name="TRAV VERT")
     travs = [trav_horz, trav_vert]
@@ -1421,8 +1445,7 @@ if __name__ == '__main__':
     if trav_horz.auto_connect(path_config=C.PATH_CONFIG_TRAV_HORZ,
                               match_serial_str=C.SERIAL_TRAV_HORZ):
         trav_horz.begin()
-
-        # Set the default motion profile (= #2) parameters
+        # Set default motion profile (= #2) parameters
         trav_horz.store_motion_profile(target_position=0,
                                        velocity=10,
                                        mode=1,
@@ -1434,8 +1457,7 @@ if __name__ == '__main__':
     if trav_vert.auto_connect(path_config=C.PATH_CONFIG_TRAV_VERT,
                               match_serial_str=C.SERIAL_TRAV_VERT):
         trav_vert.begin()
-
-        # Set the default motion profile (= #2) parameters
+        # Set default motion profile (= #2) parameters
         trav_vert.store_motion_profile(target_position=0,
                                        velocity=10,
                                        mode=1,
@@ -1444,89 +1466,10 @@ if __name__ == '__main__':
                                        jerk=1e6,
                                        profile_number=2)
 
-    # --------------------------------------------------------------------------
-    #   Create application
-    # --------------------------------------------------------------------------
-
-    app = 0    # Work-around for kernel crash when using Spyder IDE
-    app = QtGui.QApplication(sys.argv)
-    app.setFont(MHT_tunnel_GUI.FONT_DEFAULT)
-    app.aboutToQuit.connect(about_to_quit)
-
-    # For DEBUG info
-    QtCore.QThread.currentThread().setObjectName('MAIN')
-
-    window = MHT_tunnel_GUI.MainWindow()
-
-    # --------------------------------------------------------------------------
-    #   Create file logger
-    # --------------------------------------------------------------------------
-
-    file_logger = FileLogger()
-
-    # Connect slot to signal
-    file_logger.signal_set_recording_text.connect(window.set_text_qpbt_record)
-
-    # --------------------------------------------------------------------------
-    #   Set up communication threads for the Arduino(s)
-    # --------------------------------------------------------------------------
-
-    # Create workers and threads
-    ards_pyqt = Arduino_pyqt_lib.Arduino_pyqt(ard1,
-                                              ard2,
-                                              C.UPDATE_INTERVAL_ARDUINOS,
-                                              my_Arduino_DAQ_update)
-
-    # Connect slots from main thread to signals from worker threads
-    ards_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI)
-    ards_pyqt.worker_DAQ.signal_connection_lost.connect(notify_connection_lost)
-
-    # Start threads
-    ards_pyqt.start_thread_worker_DAQ(QtCore.QThread.TimeCriticalPriority)
-    ards_pyqt.start_thread_worker_send()
-
-    # --------------------------------------------------------------------------
-    #   Create PyQt GUI interfaces and communication threads for peripheral
-    #   devices. Connect corresponding signals to slots.
-    # --------------------------------------------------------------------------
-
-    # Bronkhorst mass flow controller
-    mfc_pyqt = mfc_pyqt_lib.Bronkhorst_MFC_pyqt(mfc, C.UPDATE_INTERVAL_MFC)
-
-    mfc_pyqt.signal_valve_auto_open.connect(process_mfc_auto_open_valve)
-    mfc_pyqt.signal_valve_auto_close.connect(close_all_bubblers)
-
-    # Keysight power supplies
-    psus_pyqt = list()
-    DEBUG_colors = (ANSI.YELLOW, ANSI.CYAN, ANSI.GREEN)
-    for i in range(len(psus)):
-        psus_pyqt.append(N8700_pyqt_lib.PSU_pyqt(
-                dev=psus[i], DEBUG_color=DEBUG_colors[i]))
-
-    # Keysight 3497xA
-    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
-            dev=mux1, scanning_interval_ms=C.MUX_1_SCANNING_INTERVAL)
-
-    # Picotech PT-104
-    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, C.UPDATE_INTERVAL_PT104)
-
-    pt104_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI_PT104)
-
-    # ThermoFlex chiller
-    chiller_pyqt = chiller_pyqt_lib.ThermoFlex_chiller_pyqt(
-            dev=chiller, update_interval_ms=C.UPDATE_INTERVAL_CHILLER)
-
-    chiller_pyqt.worker_state.signal_GUI_update.connect(
-            update_GUI_chiller_extras)
-
-
-    # Compax3 traverse controllers
     trav_horz_pyqt = compax3_pyqt_lib.Compax3_traverse_pyqt(trav_horz,
                                                     C.UPDATE_INTERVAL_TRAVs)
-
     trav_vert_pyqt = compax3_pyqt_lib.Compax3_traverse_pyqt(trav_vert,
                                                     C.UPDATE_INTERVAL_TRAVs)
-
     travs_pyqt = [trav_horz_pyqt, trav_vert_pyqt]
 
     # Create Compax3 single step navigator
@@ -1537,19 +1480,56 @@ if __name__ == '__main__':
     trav_step_nav.step_left.connect(act_upon_signal_step_left)
     trav_step_nav.step_right.connect(act_upon_signal_step_right)
 
+    # -----------------------------------
+    #   Keysight 3497xA multiplexers
+    # -----------------------------------
+
+    mux1 = K3497xA_functions.K3497xA(C.MUX_1_VISA_ADDRESS, name="MUX 1")
+    if mux1.connect(rm):
+        mux1.begin(C.MUX_1_SCPI_COMMANDS)
+
+    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
+            dev=mux1, scanning_interval_ms=C.MUX_1_SCANNING_INTERVAL)
+
+    # -----------------------------------
+    #   Picotech PT-104
+    # -----------------------------------
+    # NOTE: Should be the last device to connect to, because there is only a
+    # 15 s time window where the PT-104 expects a new 'keep alive' signal.
+
+    pt104 = pt104_functions.PT104(name="PT104")
+    if pt104.connect(C.PT104_IP_ADDRESS, C.PT104_PORT):
+        pt104.begin()
+        pt104.start_conversion(C.PT104_ENA_CHANNELS, C.PT104_GAIN_CHANNELS)
+
+    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, C.UPDATE_INTERVAL_PT104)
+    pt104_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI_PT104)
+
     # --------------------------------------------------------------------------
-    #   Add more GUI elements
+    #   Create main window
     # --------------------------------------------------------------------------
 
-    # Bronkhorst mass flow controller
+    window = MHT_tunnel_GUI.MainWindow()
+
+    # -----------------------
+    #   Tab: Main
+    # -----------------------
+
     mfc_pyqt.qgrp.setTitle('')
     mfc_pyqt.qgrp.setFlat(True)
     mfc_pyqt.grid.setContentsMargins(0, 0, 0, 0)
     mfc_pyqt.qlbl_update_counter.setVisible(False)
     window.grid_bubbles.addWidget(mfc_pyqt.qgrp, 0, 0, 1, 3)
 
-    # Tab: heater control
-    # -------------------
+    # -----------------------
+    #   Tab: Chiller
+    # -----------------------
+
+    window.tab_chiller.setLayout(chiller_pyqt.hbly_GUI)
+
+    # -----------------------
+    #   Tab: Heater control
+    # -----------------------
 
     hbox1 = QtWid.QHBoxLayout()
     hbox2 = QtWid.QHBoxLayout()
@@ -1557,10 +1537,13 @@ if __name__ == '__main__':
     # Keysight power supplies
     for psu_pyqt in psus_pyqt:
         hbox1.addWidget(psu_pyqt.grpb, stretch=0, alignment=QtCore.Qt.AlignTop)
+        if psu_pyqt.dev.is_alive:
+            # Enable power PID controller by default
+            psu_pyqt.pbtn_ENA_PID.setChecked(True)
+            psu_pyqt.process_pbtn_ENA_PID()
 
     # Keysight 3497xA
     mux1_pyqt.grpb.setTitle(mux1_pyqt.dev.name + ": Heater temperatures")
-    #mux1_pyqt.grpb.setFixedWidth(320)
     mux1_pyqt.table_readings.setFixedWidth(150)
     mux1_pyqt.table_readings.setColumnWidth(0, 90)
     mux1_pyqt.set_table_readings_format("%.2f")
@@ -1585,13 +1568,9 @@ if __name__ == '__main__':
 
     window.tab_heater_control.setLayout(vbox)
 
-    # Tab: ThermoFlex chiller
     # -----------------------
-
-    window.tab_chiller.setLayout(chiller_pyqt.hbly_GUI)
-
-    # Tab: traverse
-    # -------------------
+    #   Tab: Traverse
+    # -----------------------
 
     vbox = QtWid.QVBoxLayout()
     vbox.addWidget(window.grpb_trav_img)
@@ -1610,8 +1589,23 @@ if __name__ == '__main__':
     window.tab_traverse.setLayout(hbox)
 
     # --------------------------------------------------------------------------
+    #   File logger
+    # --------------------------------------------------------------------------
+
+    file_logger = FileLogger()
+    file_logger.signal_set_recording_text.connect(window.set_text_qpbt_record)
+
+    # --------------------------------------------------------------------------
     #   Start threads
     # --------------------------------------------------------------------------
+
+    # Arduinos
+    ards_pyqt.start_thread_worker_DAQ(QtCore.QThread.TimeCriticalPriority)
+    ards_pyqt.start_thread_worker_send()
+
+    # Picotech PT-104
+    if not pt104_pyqt.start_thread_worker_DAQ():
+        update_GUI_PT104()  # Update GUI once to reflect offline device
 
     # Bronkhorst mass flow controller
     mfc_pyqt.start_thread_worker_DAQ()
@@ -1622,7 +1616,6 @@ if __name__ == '__main__':
         if psu_pyqt.dev.is_alive:
             psu_pyqt.worker_state.signal_GUI_update.connect(
                     update_GUI_heater_control_extras)
-
             psu_pyqt.thread_state.start()
             psu_pyqt.thread_send.start()
 
@@ -1630,14 +1623,8 @@ if __name__ == '__main__':
     if mux1.is_alive:
         mux1_pyqt.worker_state.external_function_to_run_in_update = (
                 lambda: mux1_check_OTP_routine())
-
         mux1_pyqt.thread_state.start()
         mux1_pyqt.thread_send.start()
-
-    # Picotech PT-104
-    if not pt104_pyqt.start_thread_worker_DAQ():
-        # Must update GUI manually to reflect offline status
-        update_GUI_PT104()
 
     # ThermoFlex chiller
     if chiller.is_alive:
@@ -1647,7 +1634,6 @@ if __name__ == '__main__':
     # Compax3 traverse controllers
     trav_horz_pyqt.start_thread_worker_DAQ()
     trav_horz_pyqt.start_thread_worker_send()
-
     trav_vert_pyqt.start_thread_worker_DAQ()
     trav_vert_pyqt.start_thread_worker_send()
 
@@ -1778,7 +1764,7 @@ if __name__ == '__main__':
     #window.tabs.setCurrentIndex(1)
 
     # --------------------------------------------------------------------------
-    #   Start the main GUI loop
+    #   Start the main GUI event loop
     # --------------------------------------------------------------------------
 
     window.setGeometry(220, 34, 1310, 1010)
