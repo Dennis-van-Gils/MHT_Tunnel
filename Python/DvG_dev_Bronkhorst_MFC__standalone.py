@@ -6,7 +6,7 @@
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import sys

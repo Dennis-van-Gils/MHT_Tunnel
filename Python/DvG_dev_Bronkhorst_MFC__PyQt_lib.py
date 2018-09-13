@@ -6,7 +6,7 @@ acquisition for a Bronkhorst mass flow controller (MFC).
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
@@ -17,6 +17,7 @@ from DvG_PyQt_controls import SS_GROUP, SS_TEXTBOX_READ_ONLY
 from DvG_debug_functions import print_fancy_traceback as pft
 
 import DvG_dev_Bronkhorst_MFC__fun_RS232 as mfc_functions
+import DvG_dev_Base__PyQt_lib            as Dev_Base_pyqt_lib
 
 # Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
 DEBUG_worker_DAQ  = False
@@ -26,7 +27,7 @@ DEBUG_worker_send = False
 #   Bronkhorst_MFC_pyqt
 # ------------------------------------------------------------------------------
 
-class Bronkhorst_MFC_pyqt(QtCore.QObject):
+class Bronkhorst_MFC_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """Manages multithreaded communication and periodical data acquisition for
     a Bronkhorst mass flow controller (MFC), referred to as the 'device'.
 
@@ -70,14 +71,14 @@ class Bronkhorst_MFC_pyqt(QtCore.QObject):
             Deadtime period in milliseconds of the auto close signal after a
             setpoint > 0 has been send.
 
-    Class instances:
-        (*) worker_DAQ
-        (*) worker_send
-
     Main methods:
         (*) start_thread_worker_DAQ(...)
         (*) start_thread_worker_send(...)
         (*) close_all_threads()
+
+    Inner-class instances:
+        (*) worker_DAQ
+        (*) worker_send
 
     Main GUI objects:
         qgrp (PyQt5.QtWidgets.QGroupBox)
@@ -88,14 +89,6 @@ class Bronkhorst_MFC_pyqt(QtCore.QObject):
         signal_valve_auto_close()
         signal_valve_auto_open()
     """
-    from DvG_dev_Base__PyQt_lib import (Worker_DAQ,
-                                        Worker_send,
-                                        create_thread_worker_DAQ,
-                                        create_thread_worker_send,
-                                        start_thread_worker_DAQ,
-                                        start_thread_worker_send,
-                                        close_all_threads)
-
     signal_valve_auto_close = QtCore.pyqtSignal()
     signal_valve_auto_open  = QtCore.pyqtSignal()
 
@@ -108,29 +101,21 @@ class Bronkhorst_MFC_pyqt(QtCore.QObject):
                  parent=None):
         super(Bronkhorst_MFC_pyqt, self).__init__(parent=parent)
 
-        self.dev = dev
-        self.dev.mutex = QtCore.QMutex()
+        self.attach_device(dev)
 
-        self.worker_DAQ = self.Worker_DAQ(
-                dev,
-                DAQ_update_interval_ms,
-                self.DAQ_update,
-                DAQ_critical_not_alive_count,
-                DAQ_timer_type,
-                DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DEBUG=DEBUG_worker_DAQ)
 
-        self.worker_send = self.Worker_send(
-                dev,
-                self.alt_process_jobs_function,
-                DEBUG=DEBUG_worker_send)
+        self.create_worker_send(self.alt_process_jobs_function,
+                                DEBUG=DEBUG_worker_send)
 
         self.create_GUI()
-        self.worker_DAQ.signal_DAQ_updated.connect(self.update_GUI)
+        self.signal_DAQ_updated.connect(self.update_GUI)
         if not self.dev.is_alive:
             self.update_GUI()  # Correctly reflect an offline device
-
-        self.create_thread_worker_DAQ()
-        self.create_thread_worker_send()
 
         # Auto open or close of an optional peripheral valve
         self.dev.state.prev_flow_rate = self.dev.state.flow_rate
@@ -250,12 +235,12 @@ class Bronkhorst_MFC_pyqt(QtCore.QObject):
         """
         if self.dev.is_alive:
             # At startup
-            if self.dev.update_counter == 1:
+            if self.DAQ_update_counter == 1:
                 self.qled_send_setpoint.setText("%.2f" %
                                                 self.dev.state.setpoint)
             self.qled_flow_rate.setText("%.2f" % self.dev.state.flow_rate)
             self.qled_read_setpoint.setText("%.2f" % self.dev.state.setpoint)
-            self.qlbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.qlbl_update_counter.setText("%s" % self.DAQ_update_counter)
         else:
             self.qgrp.setEnabled(False)
             self.qlbl_offline.setVisible(True)
