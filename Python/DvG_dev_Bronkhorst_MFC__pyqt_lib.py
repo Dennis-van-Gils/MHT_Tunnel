@@ -13,11 +13,11 @@ from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 from PyQt5.QtCore import QDateTime
 
-from DvG_PyQt_controls import SS_GROUP, SS_TEXTBOX_READ_ONLY
+from DvG_pyqt_controls import SS_GROUP, SS_TEXTBOX_READ_ONLY
 from DvG_debug_functions import print_fancy_traceback as pft
 
 import DvG_dev_Bronkhorst_MFC__fun_RS232 as mfc_functions
-import DvG_dev_Base__PyQt_lib            as Dev_Base_pyqt_lib
+import DvG_dev_Base__pyqt_lib            as Dev_Base_pyqt_lib
 
 # Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
 DEBUG_worker_DAQ  = False
@@ -56,7 +56,7 @@ class Bronkhorst_MFC_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
             can be put onto, and sends the queued operations first in first out
             (FIFO) to the device.
 
-    (*): See 'DvG_dev_Base__PyQt_lib.py' for details.
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
 
     Args:
         dev:
@@ -80,12 +80,17 @@ class Bronkhorst_MFC_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         (*) worker_DAQ
         (*) worker_send
 
+    Main data attributes:
+        (*) DAQ_update_counter
+        (*) obtained_DAQ_update_interval_ms
+        (*) obtained_DAQ_rate_Hz
+
     Main GUI objects:
         qgrp (PyQt5.QtWidgets.QGroupBox)
 
     Signals:
-        (*) worker_DAQ.signal_DAQ_updated()
-        (*) worker_DAQ.signal_connection_lost()
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
         signal_valve_auto_close()
         signal_valve_auto_open()
     """

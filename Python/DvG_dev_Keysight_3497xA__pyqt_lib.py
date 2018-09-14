@@ -2,24 +2,28 @@
 # -*- coding: utf-8 -*-
 """PyQt5 module to provide multithreaded communication and periodical data
 acquisition for a Keysight (former HP or Agilent) 34970A/34972A data
-acquisition/switch unit.
+acquisition/switch unit. Different boards can be installed inside such a unit.
+This library is intended to be used with multiplexer board(s), as it will
+scan over the board's input channels to retrieve the readings. Hence, we also
+refer to this device as a multiplexer, or mux.
 """
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "13-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_PyQt_controls import (create_Toggle_button,
+from DvG_pyqt_controls import (create_Toggle_button,
                                SS_TEXTBOX_ERRORS,
                                SS_TEXTBOX_READ_ONLY,
                                SS_GROUP)
 from DvG_debug_functions import dprint, print_fancy_traceback as pft
 
 import DvG_dev_Keysight_3497xA__fun_SCPI as K3497xA_functions
+import DvG_dev_Base__pyqt_lib            as Dev_Base_pyqt_lib
 
 # Monospace font
 FONT_MONOSPACE = QtGui.QFont("Monospace", 12, weight=QtGui.QFont.Bold)
@@ -36,17 +40,20 @@ INFINITY_CAP = 9.8e37
 def get_tick(): return QtCore.QDateTime.currentMSecsSinceEpoch()
 
 # Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
-DEBUG_worker_DAQ  = True
-DEBUG_worker_send = True
+DEBUG_worker_DAQ  = False
+DEBUG_worker_send = False
 
 # ------------------------------------------------------------------------------
 #   K3497xA_pyqt
 # ------------------------------------------------------------------------------
 
-class K3497xA_pyqt(QtCore.QObject):
+class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """Manages multithreaded communication and periodical data acquisition for
     a Keysight (former HP or Agilent) 34970A/34972A data acquisition/switch
-    unit, referred to as the 'device'.
+    unit, referred to as the 'device'. Different boards can be installed inside
+    such a unit. This library is intended to be used with multiplexer board(s),
+    as it will scan over the board's input channels to retrieve the readings.
+    Hence, we also refer to this device as a multiplexer, or mux.
 
     In addition, it also provides PyQt5 GUI objects for control of the device.
     These can be incorporated into your application.
@@ -73,7 +80,7 @@ class K3497xA_pyqt(QtCore.QObject):
             can be put onto, and sends the queued operations first in first out
             (FIFO) to the device.
 
-    (*): See 'DvG_dev_Base__PyQt_lib.py' for details.
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
 
     Args:
         dev:
@@ -83,86 +90,82 @@ class K3497xA_pyqt(QtCore.QObject):
         (*) DAQ_critical_not_alive_count
         (*) DAQ_timer_type
 
-        extra_MUX_process_function:
-            TODO: write description
-
-    Class instances:
-        (*) worker_DAQ
-        (*) worker_send
+        DAQ_postprocess_MUX_data_function (optional, default=None):
+            Reference to a user-supplied function that will be called during
+            an 'worker_DAQ' update, after a mux scan has been performed. Hence,
+            you can use this function to, e.g., parse out the scan readings into
+            separate variables and post-process this data or log it.
 
     Main methods:
         (*) start_thread_worker_DAQ(...)
         (*) start_thread_worker_send(...)
         (*) close_all_threads()
 
+        set_table_readings_format:
+            TO DO: write description
+
+    Inner-class instances:
+        (*) worker_DAQ
+        (*) worker_send
+
+    Main data attributes:
+        is_MUX_scanning (read-only bool):
+            True when the multiplexer is fetching new scan data every DAQ
+            update, False otherwise. Do not set this variable directly. Use
+            the slots 'start_MUX_scan' and 'stop_MUX_scan', instead.
+
     Main GUI objects:
         qgrp (PyQt5.QtWidgets.QGroupBox)
 
-    Main attributes:
-        self.worker_DAQ.ENA_periodic_scanning:
-            TODO: write description
-
     Signals:
-        (*) worker_DAQ.signal_DAQ_updated()
-        (*) worker_DAQ.signal_connection_lost()
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
 
     Slots:
-        worker_DAQ.start_scanning():
-            TODO: write description
+        start_MUX_scan():
+            Enable scanning and fetching data of the multiplexer during an
+            'worker_DAQ' update.
 
-        worker_DAQ.stop_scanning():
-            TODO: write description
+        stop_MUX_scan():
+            Disable scanning and fetching data of the multiplexer during an
+            'worker_DAQ' update.
     """
-    from DvG_dev_Base__PyQt_lib import (Worker_DAQ,
-                                        Worker_send,
-                                        create_thread_worker_DAQ,
-                                        create_thread_worker_send,
-                                        start_thread_worker_DAQ,
-                                        start_thread_worker_send,
-                                        close_all_threads)
-
     def __init__(self,
                  dev: K3497xA_functions.K3497xA,
                  DAQ_update_interval_ms=1000,
                  DAQ_critical_not_alive_count=3,
                  DAQ_timer_type=QtCore.Qt.CoarseTimer,
-                 extra_MUX_process_function=None,
+                 DAQ_postprocess_MUX_scan_function=None,
                  parent=None):
         super(K3497xA_pyqt, self).__init__(parent=parent)
 
-        self.dev = dev
-        self.dev.mutex = QtCore.QMutex()
+        self.attach_device(dev)
 
-        self.worker_DAQ = self.Worker_DAQ(
-                dev,
-                DAQ_update_interval_ms,
-                self.DAQ_update,
-                DAQ_critical_not_alive_count,
-                DAQ_timer_type,
-                DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DEBUG=DEBUG_worker_DAQ)
 
-        self.worker_DAQ.extra_MUX_process_function = extra_MUX_process_function
-        self.worker_DAQ.ENA_periodic_scanning = False
+        self.create_worker_send(self.alt_process_jobs_function,
+                                DEBUG=DEBUG_worker_send)
 
-        self.worker_send = self.Worker_send(
-                dev,
-                self.alt_process_jobs_function,
-                DEBUG=DEBUG_worker_send)
+        self.DAQ_postprocess_MUX_scan_function = (
+                DAQ_postprocess_MUX_scan_function)
+        self.is_MUX_scanning = False
 
         # String format to use for the readings in the table widget.
         # When type is a single string, all rows will use this format.
         # When type is a list of strings, rows will be formatted consecutively.
         self.table_readings_format = "%.3e"
 
-        # Create the block of GUI elements for the device. The main QWidget
-        # object is of type QGroupBox and resides at 'self.grpb'
         self.create_GUI()
-        self.worker_DAQ.signal_DAQ_updated.connect(self.update_GUI)
+        self.signal_DAQ_updated.connect(self.update_GUI)
 
         # Populate the table view with QTableWidgetItems.
         # I.e. add the correct number of rows to the table depending on the
         # full scan list.
-        self.populate_table_widget()
+        self.populate_table_readings()
 
         # Populate the textbox with the SCPI setup commands
         self.populate_SCPI_commands()
@@ -170,15 +173,12 @@ class K3497xA_pyqt(QtCore.QObject):
         # Update GUI immediately, instead of waiting for the first refresh
         self.update_GUI()
 
-        self.create_thread_worker_DAQ()
-        self.create_thread_worker_send()
-
     # --------------------------------------------------------------------------
     #   start_scanning
     # --------------------------------------------------------------------------
 
     @QtCore.pyqtSlot()
-    def start_scanning(self):
+    def start_MUX_scan(self):
         """
         # [DISABLED CODE]
         # Recreate the worker timer and acquire new samples immediately,
@@ -194,8 +194,8 @@ class K3497xA_pyqt(QtCore.QObject):
         self.timer.stop()  # Does not work 100% of the time!
         """
 
-        self.worker_DAQ.ENA_periodic_scanning = True
-        self.worker_DAQ.signal_DAQ_updated.emit() # Show we are scanning
+        self.is_MUX_scanning = True
+        self.signal_DAQ_updated.emit()      # Show we are scanning
         QtWid.QApplication.processEvents()
 
         """
@@ -218,9 +218,9 @@ class K3497xA_pyqt(QtCore.QObject):
     # --------------------------------------------------------------------------
 
     @QtCore.pyqtSlot()
-    def stop_scanning(self):
-        self.worker_DAQ.ENA_periodic_scanning = False
-        self.worker_DAQ.signal_DAQ_updated.emit() # Show we stopped scanning
+    def stop_MUX_scan(self):
+        self.is_MUX_scanning = False
+        self.signal_DAQ_updated.emit()      # Show we stopped scanning
         QtWid.QApplication.processEvents()
 
     # --------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class K3497xA_pyqt(QtCore.QObject):
         self.dev.device.clear()
 
         success = True
-        if self.worker_DAQ.ENA_periodic_scanning:
+        if self.is_MUX_scanning:
             success &= self.dev.init_scan()                 # Init scan
 
             if success:
@@ -259,9 +259,8 @@ class K3497xA_pyqt(QtCore.QObject):
                     tick = tock
 
         if success:
-            # Do not throw additional timeout exceptions when
-            # .init_scan() might have already failed. Hence this check
-            # for no success.
+            # Do not throw additional timeout exceptions when .init_scan()
+            # might have already failed. Hence this check for no success.
             self.dev.query_all_errors_in_queue()            # Query errors
             if self.worker_DAQ.DEBUG:
                 tock = get_tick()
@@ -281,9 +280,11 @@ class K3497xA_pyqt(QtCore.QObject):
             # be sending self.dev.clear() every iter to clear the input and
             # output buffers. This is now done at the start of this function.
 
-        # Additional and optional external function to be run
-        if self.worker_DAQ.extra_MUX_process_function is not None:
-            self.worker_DAQ.extra_MUX_process_function()
+        # Optional user-supplied function to run. You can use this function to,
+        # e.g., parse out the scan readings into separate variables and
+        # post-process this data or log it.
+        if not (self.DAQ_postprocess_MUX_scan_function is None):
+            self.DAQ_postprocess_MUX_scan_function()
 
         if self.worker_DAQ.DEBUG:
             tock = get_tick()
@@ -311,113 +312,108 @@ class K3497xA_pyqt(QtCore.QObject):
     # --------------------------------------------------------------------------
 
     def create_GUI(self):
-        #  Groupbox containing 'front-panel' controls
-        # --------------------------------------------
-        self.grpb = QtWid.QGroupBox()
-        self.grpb.setTitle(self.dev.name)
-        self.grpb.setStyleSheet(SS_GROUP)
-
-        p = {'alignment': QtCore.Qt.AlignCenter,
-             'font': FONT_MONOSPACE}
+        p = {'alignment': QtCore.Qt.AlignCenter, 'font': FONT_MONOSPACE}
         p2 = {'alignment': QtCore.Qt.AlignCenter + QtCore.Qt.AlignVCenter}
-        #self.lbl_mux = QtWid.QLabel("Keysight 34972a", **p2)
-        self.lbl_mux_state = QtWid.QLabel("Offline", **p)
-        self.pbtn_start_scan = create_Toggle_button("Start scan")
+        #self.qlbl_mux = QtWid.QLabel("Keysight 34972a", **p2)
+        self.qlbl_mux_state = QtWid.QLabel("Offline", **p)
+        self.qpbt_start_scan = create_Toggle_button("Start scan")
 
-        self.SCPI_commands = QtWid.QPlainTextEdit('', readOnly=True,
-                                                  lineWrapMode=False)
-        self.SCPI_commands.setStyleSheet(SS_TEXTBOX_READ_ONLY)
-        self.SCPI_commands.setMaximumHeight(152)
-        self.SCPI_commands.setMinimumWidth(200)
-        self.SCPI_commands.setFont(FONT_MONOSPACE_SMALL)
+        self.qpte_SCPI_commands = QtWid.QPlainTextEdit('', readOnly=True,
+                                                       lineWrapMode=False)
+        self.qpte_SCPI_commands.setStyleSheet(SS_TEXTBOX_READ_ONLY)
+        self.qpte_SCPI_commands.setMaximumHeight(152)
+        self.qpte_SCPI_commands.setMinimumWidth(200)
+        self.qpte_SCPI_commands.setFont(FONT_MONOSPACE_SMALL)
 
         p = {'alignment': QtCore.Qt.AlignRight, 'readOnly': True}
-        self.scanning_interval_ms = QtWid.QLineEdit("", **p)
-        self.obtained_interval_ms = QtWid.QLineEdit("", **p)
+        self.qled_scanning_interval_ms = QtWid.QLineEdit("", **p)
+        self.qled_obtained_interval_ms = QtWid.QLineEdit("", **p)
 
-        self.errors = QtWid.QPlainTextEdit('', lineWrapMode=False)
-        self.errors.setStyleSheet(SS_TEXTBOX_ERRORS)
-        self.errors.setMaximumHeight(90)
+        self.qpte_errors = QtWid.QPlainTextEdit('', lineWrapMode=False)
+        self.qpte_errors.setStyleSheet(SS_TEXTBOX_ERRORS)
+        self.qpte_errors.setMaximumHeight(90)
 
-        self.pbtn_ackn_errors   = QtWid.QPushButton("Acknowledge errors")
-        self.pbtn_reinit        = QtWid.QPushButton("Reinitialize")
-        self.lbl_update_counter = QtWid.QLabel("0")
-        self.pbtn_debug_test    = QtWid.QPushButton("Debug test")
+        self.qpbt_ackn_errors    = QtWid.QPushButton("Acknowledge errors")
+        self.qpbt_reinit         = QtWid.QPushButton("Reinitialize")
+        self.qlbl_update_counter = QtWid.QLabel("0")
+        self.qpbt_debug_test     = QtWid.QPushButton("Debug test")
 
-        self.pbtn_start_scan.clicked.connect(self.process_pbtn_start_scan)
-        self.pbtn_ackn_errors.clicked.connect(self.process_pbtn_ackn_errors)
-        self.pbtn_reinit.clicked.connect(self.process_pbtn_reinit)
-        self.pbtn_debug_test.clicked.connect(self.process_pbtn_debug_test)
+        self.qpbt_start_scan.clicked.connect(self.process_qpbt_start_scan)
+        self.qpbt_ackn_errors.clicked.connect(self.process_qpbt_ackn_errors)
+        self.qpbt_reinit.clicked.connect(self.process_qpbt_reinit)
+        self.qpbt_debug_test.clicked.connect(self.process_qpbt_debug_test)
 
         i = 0
-        p  = {'alignment': QtCore.Qt.AlignLeft + QtCore.Qt.AlignVCenter}
+        p = {'alignment': QtCore.Qt.AlignLeft + QtCore.Qt.AlignVCenter}
 
         grid = QtWid.QGridLayout()
         grid.setVerticalSpacing(4)
-        #grid.addWidget(self.lbl_mux                       , i, 0, 1, 3); i+=1
+        #grid.addWidget(self.qlbl_mux                      , i, 0, 1, 3); i+=1
         grid.addWidget(QtWid.QLabel("Only scan when necessary.", **p2)
                                                           , i, 0, 1, 2); i+=1
         grid.addWidget(QtWid.QLabel("It wears down the multiplexer.", **p2)
                                                           , i, 0, 1, 2); i+=1
         grid.addItem(QtWid.QSpacerItem(1, 3)              , i, 0)      ; i+=1
-        grid.addWidget(self.lbl_mux_state                 , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qlbl_mux_state                , i, 0, 1, 2); i+=1
         grid.addItem(QtWid.QSpacerItem(1, 3)              , i, 0)      ; i+=1
-        grid.addWidget(self.pbtn_start_scan               , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qpbt_start_scan               , i, 0, 1, 2); i+=1
         grid.addItem(QtWid.QSpacerItem(1, 4)              , i, 0)      ; i+=1
         grid.addWidget(QtWid.QLabel("SCPI scan commands:"), i, 0, 1, 2); i+=1
-        grid.addWidget(self.SCPI_commands                 , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qpte_SCPI_commands            , i, 0, 1, 2); i+=1
         grid.addWidget(QtWid.QLabel("Scanning interval [ms]"), i, 0)
-        grid.addWidget(self.scanning_interval_ms          , i, 1)      ; i+=1
+        grid.addWidget(self.qled_scanning_interval_ms     , i, 1)      ; i+=1
         grid.addWidget(QtWid.QLabel("Obtained [ms]")      , i, 0)
-        grid.addWidget(self.obtained_interval_ms          , i, 1)      ; i+=1
-        grid.addWidget(self.pbtn_reinit                   , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qled_obtained_interval_ms     , i, 1)      ; i+=1
+        grid.addWidget(self.qpbt_reinit                   , i, 0, 1, 2); i+=1
         grid.addItem(QtWid.QSpacerItem(1, 12)             , i, 0)      ; i+=1
         grid.addWidget(QtWid.QLabel("Errors:")            , i, 0, 1, 2); i+=1
-        grid.addWidget(self.errors                        , i, 0, 1, 2); i+=1
-        grid.addWidget(self.pbtn_ackn_errors              , i, 0, 1, 2); i+=1
-        grid.addWidget(self.lbl_update_counter            , i, 0, 1, 2); i+=1
-        #grid.addWidget(self.pbtn_debug_test               , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qpte_errors                   , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qpbt_ackn_errors              , i, 0, 1, 2); i+=1
+        grid.addWidget(self.qlbl_update_counter           , i, 0, 1, 2); i+=1
+        #grid.addWidget(self.qpbt_debug_test               , i, 0, 1, 2); i+=1
 
         #  Table widget containing the readings of the current scan cycle
         # ----------------------------------------------------------------
-        self.table_readings = QtWid.QTableWidget(columnCount=1)
-        self.table_readings.setHorizontalHeaderLabels(["Readings"])
-        self.table_readings.horizontalHeaderItem(0).setFont(FONT_MONOSPACE_SMALL)
-        self.table_readings.verticalHeader().setFont(FONT_MONOSPACE_SMALL)
-        self.table_readings.verticalHeader().setDefaultSectionSize(24);
-        self.table_readings.setFont(FONT_MONOSPACE_SMALL)
-        #self.table_readings.setMinimumHeight(600)
-        self.table_readings.setFixedWidth(180)
-        self.table_readings.setColumnWidth(0, 100)
+        self.qtbl_readings = QtWid.QTableWidget(columnCount=1)
+        self.qtbl_readings.setHorizontalHeaderLabels(["Readings"])
+        self.qtbl_readings.horizontalHeaderItem(0).setFont(FONT_MONOSPACE_SMALL)
+        self.qtbl_readings.verticalHeader().setFont(FONT_MONOSPACE_SMALL)
+        self.qtbl_readings.verticalHeader().setDefaultSectionSize(24);
+        self.qtbl_readings.setFont(FONT_MONOSPACE_SMALL)
+        #self.qtbl_readings.setMinimumHeight(600)
+        self.qtbl_readings.setFixedWidth(180)
+        self.qtbl_readings.setColumnWidth(0, 100)
 
-        grid.addWidget(self.table_readings, 0, 2, i, 1)
+        grid.addWidget(self.qtbl_readings, 0, 2, i, 1)
 
-        self.grpb.setLayout(grid)
+        self.qgrp = QtWid.QGroupBox("%s" % self.dev.name)
+        self.qgrp.setStyleSheet(SS_GROUP)
+        self.qgrp.setLayout(grid)
 
     # --------------------------------------------------------------------------
     #   populate_SCPI_commands
     # --------------------------------------------------------------------------
 
     def populate_SCPI_commands(self):
-        self.SCPI_commands.setPlainText("%s" %
-                                        '\n'.join(self.dev.SCPI_setup_commands))
-        self.scanning_interval_ms.setText("%i" %
-                                          self.worker_DAQ.update_interval_ms)
+        self.qpte_SCPI_commands.setPlainText(
+                "%s" % '\n'.join(self.dev.SCPI_setup_commands))
+        self.qled_scanning_interval_ms.setText(
+                "%i" % self.worker_DAQ.update_interval_ms)
 
     # --------------------------------------------------------------------------
     #   Table widget related
     # --------------------------------------------------------------------------
 
-    def populate_table_widget(self):
-        self.table_readings.setRowCount(len(
-                self.dev.state.all_scan_list_channels))
-        self.table_readings.setVerticalHeaderLabels(
+    def populate_table_readings(self):
+        self.qtbl_readings.setRowCount(
+                len(self.dev.state.all_scan_list_channels))
+        self.qtbl_readings.setVerticalHeaderLabels(
                 self.dev.state.all_scan_list_channels)
 
         for i in range(len(self.dev.state.all_scan_list_channels)):
             item = QtWid.QTableWidgetItem("nan")
             item.setTextAlignment(QtCore.Qt.AlignRight + QtCore.Qt.AlignCenter)
-            self.table_readings.setItem(i, 0, item)
+            self.qtbl_readings.setItem(i, 0, item)
 
     def set_table_readings_format(self, format_str):
         # String format to use for the readings in the table widget
@@ -438,28 +434,28 @@ class K3497xA_pyqt(QtCore.QObject):
         Not locking the mutex might speed up the program.
         """
         if self.dev.is_alive:
-            if (self.worker_DAQ.ENA_periodic_scanning):
-                self.lbl_mux_state.setText("Scanning")
-                self.pbtn_start_scan.setChecked(True)
+            if (self.is_MUX_scanning):
+                self.qlbl_mux_state.setText("Scanning")
+                self.qpbt_start_scan.setChecked(True)
             else:
-                self.lbl_mux_state.setText("Idle")
-                self.pbtn_start_scan.setChecked(False)
+                self.qlbl_mux_state.setText("Idle")
+                self.qpbt_start_scan.setChecked(False)
 
-            self.errors.setReadOnly(self.dev.state.all_errors != [])
-            self.errors.setStyleSheet(SS_TEXTBOX_ERRORS)
-            self.errors.setPlainText("%s" %
-                                     '\n'.join(self.dev.state.all_errors))
+            self.qpte_errors.setReadOnly(self.dev.state.all_errors != [])
+            self.qpte_errors.setStyleSheet(SS_TEXTBOX_ERRORS)
+            self.qpte_errors.setPlainText(
+                    "%s" % '\n'.join(self.dev.state.all_errors))
 
-            self.obtained_interval_ms.setText(
-                    "%.0f" % self.dev.obtained_DAQ_update_interval_ms)
-            self.lbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.qled_obtained_interval_ms.setText(
+                    "%.0f" % self.obtained_DAQ_update_interval_ms)
+            self.qlbl_update_counter.setText("%s" % self.DAQ_update_counter)
 
             for i in range(len(self.dev.state.all_scan_list_channels)):
                 if i >= len(self.dev.state.readings):
                     break
                 reading = self.dev.state.readings[i]
                 if reading > INFINITY_CAP:
-                    self.table_readings.item(i, 0).setData(
+                    self.qtbl_readings.item(i, 0).setData(
                             QtCore.Qt.DisplayRole, "Inf")
                 else:
                     if type(self.table_readings_format) == list:
@@ -470,33 +466,34 @@ class K3497xA_pyqt(QtCore.QObject):
                     elif type(self.table_readings_format) == str:
                         str_format = self.table_readings_format
 
-                    self.table_readings.item(i, 0).setData(
+                    self.qtbl_readings.item(i, 0).setData(
                             QtCore.Qt.DisplayRole, str_format % reading)
         else:
-            self.lbl_mux_state.setText("Offline")
-            self.grpb.setEnabled(False)
+            self.qlbl_mux_state.setText("Offline")
+            self.qgrp.setEnabled(False)
 
     # --------------------------------------------------------------------------
     #   GUI functions
     # --------------------------------------------------------------------------
 
     @QtCore.pyqtSlot()
-    def process_pbtn_start_scan(self):
-        if self.pbtn_start_scan.isChecked():
-            self.start_scanning()
+    def process_qpbt_start_scan(self):
+        if self.qpbt_start_scan.isChecked():
+            self.start_MUX_scan()
         else:
-            self.stop_scanning()
+            self.stop_MUX_scan()
 
     @QtCore.pyqtSlot()
-    def process_pbtn_ackn_errors(self):
+    def process_qpbt_ackn_errors(self):
         # Lock the dev mutex because string operations are not atomic
         locker = QtCore.QMutexLocker(self.dev.mutex)
         self.dev.state.all_errors = []
-        self.errors.setPlainText('')
-        self.errors.setReadOnly(False)   # To change back to regular colors
+        self.qpte_errors.setPlainText('')
+        self.qpte_errors.setReadOnly(False) # To change back to regular colors
+        locker.unlock()
 
     @QtCore.pyqtSlot()
-    def process_pbtn_reinit(self):
+    def process_qpbt_reinit(self):
         str_msg = ("Are you sure you want reinitialize the multiplexer?\n\n"
                    "This would abort the current scan, reset the device\n"
                    "and resend the SCPI scan command list.")
@@ -506,12 +503,12 @@ class K3497xA_pyqt(QtCore.QObject):
                 QtWid.QMessageBox.No)
 
         if reply == QtWid.QMessageBox.Yes:
-            self.pbtn_start_scan.setChecked(False)
-            self.stop_scanning()
+            self.qpbt_start_scan.setChecked(False)
+            self.stop_MUX_scan()
             self.worker_send.add_to_queue(self.dev.wait_for_OPC)
             self.worker_send.add_to_queue(self.dev.begin)
             self.worker_send.process_queue()
 
     @QtCore.pyqtSlot()
-    def process_pbtn_debug_test(self):
+    def process_qpbt_debug_test(self):
         self.worker_send.queued_instruction(self.dev.write, "junk")

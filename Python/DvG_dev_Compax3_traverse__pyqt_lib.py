@@ -6,18 +6,19 @@ acquisition for a Compax3 traverse controller.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_PyQt_controls import (SS_GROUP,
+from DvG_pyqt_controls import (SS_GROUP,
                                SS_TEXTBOX_ERRORS,
                                create_error_LED,
                                create_tiny_LED)
 
 import DvG_dev_Compax3_traverse__fun_RS232 as compax3_functions
+import DvG_dev_Base__pyqt_lib as Dev_Base_pyqt_lib
 
 # Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
 DEBUG_worker_DAQ  = False
@@ -27,7 +28,7 @@ DEBUG_worker_send = False
 #   Compax3_traverse_pyqt
 # ------------------------------------------------------------------------------
 
-class Compax3_traverse_pyqt(QtWid.QWidget):
+class Compax3_traverse_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """Manages multithreaded communication and periodical data acquisition for
     a Compax3 traverse controller, referred to as the 'device'.
 
@@ -45,7 +46,7 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
             can be put onto, and sends the queued operations first in first out
             (FIFO) to the device.
 
-    (*): See 'DvG_dev_Base__PyQt_lib.py' for details.
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
 
     Args:
         dev:
@@ -56,30 +57,27 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
         (*) DAQ_critical_not_alive_count
         (*) DAQ_timer_type
 
-    Class instances:
-        (*) worker_DAQ
-        (*) worker_send
-
     Main methods:
         (*) start_thread_worker_DAQ(...)
         (*) start_thread_worker_send(...)
         (*) close_all_threads()
 
+    Inner-class instances:
+        (*) worker_DAQ
+        (*) worker_send
+
+    Main data attributes:
+        (*) DAQ_update_counter
+        (*) obtained_DAQ_update_interval_ms
+        (*) obtained_DAQ_rate_Hz
+
     Main GUI objects:
         qgrp (PyQt5.QtWidgets.QGroupBox)
 
     Signals:
-        (*) worker_DAQ.signal_DAQ_updated()
-        (*) worker_DAQ.signal_connection_lost()
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
     """
-    from DvG_dev_Base__PyQt_lib import (Worker_DAQ,
-                                        Worker_send,
-                                        create_thread_worker_DAQ,
-                                        create_thread_worker_send,
-                                        start_thread_worker_DAQ,
-                                        start_thread_worker_send,
-                                        close_all_threads)
-
     def __init__(self,
                  dev: compax3_functions.Compax3_traverse,
                  DAQ_update_interval_ms=250,
@@ -88,29 +86,21 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
                  parent=None):
         super(Compax3_traverse_pyqt, self).__init__(parent=parent)
 
-        self.dev = dev
-        self.dev.mutex = QtCore.QMutex()
+        self.attach_device(dev)
 
-        self.worker_DAQ = self.Worker_DAQ(
-                dev,
-                DAQ_update_interval_ms,
-                self.DAQ_update,
-                DAQ_critical_not_alive_count,
-                DAQ_timer_type,
-                DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DEBUG=DEBUG_worker_DAQ)
 
-        self.worker_send = self.Worker_send(
-                dev,
-                DEBUG=DEBUG_worker_send)
+        self.create_worker_send(DEBUG=DEBUG_worker_send)
 
         self.create_GUI()
-        self.worker_DAQ.signal_DAQ_updated.connect(self.update_GUI)
+        self.signal_DAQ_updated.connect(self.update_GUI)
         self.connect_signals_to_slots()
         if not self.dev.is_alive:
             self.update_GUI()  # Correctly reflect an offline device
-
-        self.create_thread_worker_DAQ()
-        self.create_thread_worker_send()
 
         # Flags for Jog+/Jog- pushbutton control
         self.jog_plus_is_active = False
@@ -134,8 +124,8 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
     # --------------------------------------------------------------------------
 
     def create_GUI(self):
-        default_font_height = QtGui.QFontMetrics(self.font()).height()
-        default_font_width = QtGui.QFontMetrics(self.font()).widthChar('a')
+        default_font_height = 17
+        default_font_width = 8
 
         # Sub-groupbox: Status word 1 bits
         self.sw1_powerless          = create_tiny_LED()
@@ -219,7 +209,7 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
         self.qgrp = QtWid.QGroupBox("%s" % self.dev.name)
         self.qgrp.setStyleSheet(SS_GROUP)
         self.qgrp.setLayout(grid)
-        self.qgrp.setMaximumWidth(180)   # Work=around, hard limit width
+        self.qgrp.setMaximumWidth(200)   # Work=around, hard limit width
 
     # --------------------------------------------------------------------------
     #   update_GUI
@@ -234,7 +224,7 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
         """
         if self.dev.is_alive:
             # At startup
-            if self.dev.update_counter == 1:
+            if self.DAQ_update_counter == 1:
                 self.qled_new_pos.setText("%.2f" % self.dev.state.cur_pos)
 
             if self.dev.status_word_1.powerless:
@@ -265,7 +255,7 @@ class Compax3_traverse_pyqt(QtWid.QWidget):
             self.sw1_pos_reached.setChecked(self.dev.status_word_1.pos_reached)
             self.qled_cur_pos.setText("%.2f" % self.dev.state.cur_pos)
 
-            self.lbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.lbl_update_counter.setText("%s" % self.DAQ_update_counter)
         else:
             self.qgrp.setEnabled(False)
 

@@ -6,7 +6,7 @@
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "13-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -16,10 +16,10 @@ import visa
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_PyQt_controls import SS_TEXTBOX_READ_ONLY
+from DvG_pyqt_controls import SS_TEXTBOX_READ_ONLY
 
 import DvG_dev_Keysight_3497xA__fun_SCPI as K3497xA_functions
-import DvG_dev_Keysight_3497xA__PyQt_lib as K3497xA_pyqt_lib
+import DvG_dev_Keysight_3497xA__pyqt_lib as K3497xA_pyqt_lib
 
 # ------------------------------------------------------------------------------
 #   MainWindow
@@ -33,21 +33,21 @@ class MainWindow(QtWid.QWidget):
         self.setWindowTitle("Keysight 3497xA control")
 
         # Top grid
-        self.lbl_title = QtWid.QLabel("Keysight 3497xA control",
+        self.qlbl_title = QtWid.QLabel("Keysight 3497xA control",
             font=QtGui.QFont("Palatino", 14, weight=QtGui.QFont.Bold))
-        self.pbtn_exit = QtWid.QPushButton("Exit")
-        self.pbtn_exit.clicked.connect(self.close)
-        self.pbtn_exit.setMinimumHeight(30)
+        self.qpbt_exit = QtWid.QPushButton("Exit")
+        self.qpbt_exit.clicked.connect(self.close)
+        self.qpbt_exit.setMinimumHeight(30)
 
         grid_top = QtWid.QGridLayout()
-        grid_top.addWidget(self.lbl_title, 0, 0)
-        grid_top.addWidget(self.pbtn_exit, 0, 1, QtCore.Qt.AlignRight)
+        grid_top.addWidget(self.qlbl_title, 0, 0)
+        grid_top.addWidget(self.qpbt_exit, 0, 1, QtCore.Qt.AlignRight)
 
         # Bottom grid
         hbox1 = QtWid.QHBoxLayout()
-        hbox1.addWidget(mux_pyqt.grpb)
+        hbox1.addWidget(mux_pyqt.qgrp)
         hbox1.addStretch(1)
-        hbox1.setAlignment(mux_pyqt.grpb, QtCore.Qt.AlignTop)
+        hbox1.setAlignment(mux_pyqt.qgrp, QtCore.Qt.AlignTop)
 
         # Round up full window
         vbox = QtWid.QVBoxLayout(self)

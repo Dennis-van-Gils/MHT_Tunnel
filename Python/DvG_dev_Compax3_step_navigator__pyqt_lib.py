@@ -14,7 +14,7 @@ module. It will only read out the software state. Pure GUI.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -24,7 +24,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
 from DvG_debug_functions import print_fancy_traceback as pft
-from DvG_PyQt_controls import create_Toggle_button, SS_GROUP
+from DvG_pyqt_controls import create_Toggle_button, SS_GROUP
 
 from DvG_dev_Compax3_traverse__fun_RS232 import Compax3_traverse
 

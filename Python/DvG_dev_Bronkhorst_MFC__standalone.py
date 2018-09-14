@@ -16,7 +16,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
 import DvG_dev_Bronkhorst_MFC__fun_RS232 as mfc_functions
-import DvG_dev_Bronkhorst_MFC__PyQt_lib  as mfc_pyqt_lib
+import DvG_dev_Bronkhorst_MFC__pyqt_lib  as mfc_pyqt_lib
 
 # ------------------------------------------------------------------------------
 #   MainWindow
