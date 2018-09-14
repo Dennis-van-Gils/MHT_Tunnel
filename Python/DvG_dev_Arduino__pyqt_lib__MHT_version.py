@@ -1,106 +1,72 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PyQt5 module to provide multithreaded periodical data acquisition and
-transmission for an Arduino(-like) device.
-
-The communication threads are robust in the following sense. They can be set
-to quit as soon as a communication error appears, or they could be set to allow
-a certain number of communication errors before they quit. The latter can be
-useful in non-critical implementations where continuity of the program is of
-more importance than preventing drops in data transmission. This, obviously, is
-a work-around for not having to tackle the source of the communication error,
-but sometimes you just need to struggle on. E.g., when your Arduino is out in
-the field and picks up occasional unwanted interference/ground noise that
-messes with your data transmission.
-
-Classes:
-    Arduino_pyqt(...):
-        Manages multithreaded periodical data acquisition and transmission for
-        an Arduino(-like) device.
-
-        Sub-classes:
-            Worker_DAQ(...):
-                Acquires data from the Arduino at a fixed update interval.
-            Worker_send(...):
-                Sends out messages to the Arduino using a thread-safe queue.
-
-        Methods:
-            send(...):
-                Put a write operation on the worker_send queue.
-            start_thread_worker_DAQ():
-                Must be called to start the worker_DAQ thread.
-            start_thread_worker_send():
-                Must be called to start the worker_send thread.
-            close_threads():
-                Close the worker_DAQ and worker_send threads.
-
-        Important member:
-            worker_DAQ.function_to_run_each_update:
-                Reference to an external function containing the Arduino query
-                operations and subsequent data processing, to be invoked every
-                DAQ update. It should return True when everything went
-                successfull, and False otherwise.
-
-        Signals:
-            worker_DAQ.signal_DAQ_updated:
-                Emitted by the worker when 'update' has finished.
-            worker_DAQ.signal_connection_lost:
-                Emitted by the worker during 'update' when 'not_alive_counter'
-                is equal to or larger than 'critical_not_alive_count'.
+"""PyQt5 module to provide multithreaded communication and periodical data
+acquisition for the two Arduino devices running the Twente MHT Tunnel.
 """
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "Modified https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
-__date__        = "08-09-2018"
-__version__     = "2.0.0 modified for MHT tunnel"
+__date__        = "14-09-2018"
+__version__     = "1.0.0 modified for MHT tunnel"
 
 import queue
 import numpy as np
 
 from PyQt5 import QtCore
-from PyQt5 import QtWidgets as QtWid
 from PyQt5.QtCore import QDateTime
 
 from DvG_debug_functions import ANSI, dprint
 import DvG_dev_Arduino__fun_serial as Arduino_functions
 
-# Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
-DEBUG = False
+# Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
+DEBUG_worker_DAQ  = False
+DEBUG_worker_send = False
 
 # Short-hand alias for DEBUG information
 def curThreadName(): return QtCore.QThread.currentThread().objectName()
 
 # ------------------------------------------------------------------------------
+#   InnerClassDescriptor
+# ------------------------------------------------------------------------------
+
+class InnerClassDescriptor(object):
+    """Allows an inner class instance to get the attributes from the outer class
+    instance by referring to 'self.outer'. Used in this module by the
+    'Worker_DAQ' and 'Worker_send' classes. Usage: @InnerClassDescriptor.
+    Not to be used outside of this module.
+    """
+    def __init__(self, cls):
+        self.cls = cls
+
+    def __get__(self, instance, outerclass):
+        class Wrapper(self.cls):
+            outer = instance
+        Wrapper.__name__ = self.cls.__name__
+        return Wrapper
+
+# ------------------------------------------------------------------------------
 #   Arduino_pyqt
 # ------------------------------------------------------------------------------
 
-class Arduino_pyqt(QtWid.QWidget):
-    """This class provides multithreaded periodical data acquisition and
-    transmission for an Arduino(-like) board, from now on referred to as the
-    'device'.
+class Arduino_pyqt(QtCore.QObject):
+    """Manages multithreaded communication and periodical data acquisition for
+    the two Arduino devices running the Twente MHT Tunnel.
 
-    All device I/O operations will be offloaded to separate 'Workers', which
-    reside as sub-classes inside of this class. Instances of these workers
-    will be moved onto separate threads and will not run on the same thread as
-    the GUI. This will keep the GUI and main routines responsive when
-    communicating with the device.
-    !! No changes to the GUI should be done inside these sub-classes !!
+    All device I/O operations will be offloaded to 'workers', each running in
+    a newly created thread instead of in the main/GUI thread.
 
-    Two workers are created as class members at init of this class:
-        - worker_DAQ
+        - Worker_DAQ:
             Periodically acquires data from the device.
-            See Worker_DAQ for details.
 
-        - worker_send
-            Maintains a queue where desired device I/O operations can be put on
-            the stack. First in, first out (FIFO). The worker will send out the
-            operations to the device whenever its internal QWaitCondition is
-            woken up from sleep by calling 'Worker_send.qwc.wakeAll()'.
-            See Worker_send for details.
+        - Worker_send:
+            Maintains a thread-safe queue where desired device I/O operations
+            can be put onto, and sends the queued operations first in first out
+            (FIFO) to the device.
     """
-    from DvG_dev_Base__PyQt_lib import (start_thread_worker_DAQ,
-                                        start_thread_worker_send,
-                                        close_all_threads)
+    from DvG_dev_Base__pyqt_lib import close_all_threads
+
+    signal_DAQ_updated     = QtCore.pyqtSignal()
+    signal_connection_lost = QtCore.pyqtSignal()
 
     def __init__(self,
                  ard1: Arduino_functions.Arduino,
@@ -116,11 +82,18 @@ class Arduino_pyqt(QtWid.QWidget):
         self.ard1.mutex = QtCore.QMutex()
         self.ard2.mutex = QtCore.QMutex()
 
-        self.worker_DAQ = self.Worker_DAQ(ard1,
-                                          ard2,
-                                          DAQ_update_interval_ms,
-                                          DAQ_function_to_run_each_update)
-        self.worker_send = self.Worker_send(ard1, ard2)
+        self.worker_DAQ = self.Worker_DAQ(
+                ard1=ard1,
+                ard2=ard2,
+                DAQ_update_interval_ms=DAQ_update_interval_ms,
+                DAQ_function_to_run_each_update=DAQ_function_to_run_each_update,
+                DAQ_critical_not_alive_count=3,
+                DAQ_timer_type=QtCore.Qt.PreciseTimer,
+                DEBUG=DEBUG_worker_DAQ)
+        self.worker_send = self.Worker_send(
+                ard1,
+                ard2,
+                DEBUG=DEBUG_worker_send)
 
         # Create and set up threads
         if (self.ard1.is_alive and self.ard2.is_alive):
@@ -141,129 +114,146 @@ class Arduino_pyqt(QtWid.QWidget):
     #   Worker_DAQ
     # --------------------------------------------------------------------------
 
+    @InnerClassDescriptor
     class Worker_DAQ(QtCore.QObject):
-        """This Worker runs on an internal timer and will acquire data from the
-        device at a fixed update interval.
+        """This worker acquires data from the device at a fixed update interval.
+        It does so by calling a user-supplied function containing your device
+        I/O operations (and data parsing, processing or more), every update
+        period.
+
+        The worker should be placed inside a separate thread. No direct changes
+        to the GUI should be performed inside this class. If needed, use the
+        QtCore.pyqtSignal() mechanism to instigate GUI changes.
+
+        The Worker_DAQ routine is robust in the following sense. It can be set
+        to quit as soon as a communication error appears, or it could be set to
+        allow a certain number of communication errors before it quits. The
+        latter can be useful in non-critical implementations where continuity of
+        the program is of more importance than preventing drops in data
+        transmission. This, obviously, is a work-around for not having to tackle
+        the source of the communication error, but sometimes you just need to
+        struggle on. E.g., when your Arduino is out in the field and picks up
+        occasional unwanted interference/ground noise that messes with your data
+        transmission.
 
         Args:
-            dev:
-                Reference to 'DvG_dev_Arduino__fun_serial.Arduino()' instance.
+            DAQ_update_interval_ms:
+                Desired data acquisition update interval in milliseconds.
 
-            update_interval_ms:
-                Update interval in milliseconds.
+            DAQ_function_to_run_each_update (optional, default=None):
+                Reference to a user-supplied function containing the device
+                query operations and subsequent data processing, to be invoked
+                every DAQ update. It should return True when everything went
+                successful, and False otherwise.
 
-            function_to_run_each_update (optional, default=None):
-                Every 'update' it will invoke the function that is pointed to by
-                'function_to_run_each_update'. This function should contain your
-                device query operations and subsequent data processing. It
-                should return True when everything went successful, and False
-                otherwise. NOTE: No changes to the GUI should run inside this
-                function! If you do anyhow, expect a penalty in the timing
-                stability of this worker.
+                NOTE: No changes to the GUI should run inside this function! If
+                you do anyhow, expect a penalty in the timing stability of this
+                worker.
 
-                E.g. (pseudo-code), where 'dev' is an instance of
-                DvG_dev_Arduino__fun_serial.Arduino():
+                E.g. pseudo-code, where 'time' and 'reading_1' are variables
+                that live at a higher scope, presumably at main/GUI scope level.
 
                 def my_update_function():
-                    # Query the Arduino for its state
+                    # Query the device for its state
                     [success, tmp_state] = dev.query_ascii_values("state?")
                     if not(success):
-                        print("Arduino IOerror")
+                        print("Device IOerror")
                         return False
 
-                    # Parse readings into separate variables.
+                    # Parse readings into separate variables
                     try:
                         [time, reading_1] = tmp_state
                     except Exception as err:
                         print(err)
                         return False
 
-                    # Print [time, reading_1] to open file with handle 'f'
-                    try:
-                        f.write("%.3f\t%.3f\n" % (time, reading_1))
-                    except Exception as err:
-                        print(err)
-
                     return True
 
-            critical_not_alive_count (optional, default=3):
-                Worker_DAQ will allow for up to a certain number of
+            DAQ_critical_not_alive_count (optional, default=1):
+                The worker will allow for up to a certain number of
                 communication failures with the device before hope is given up
                 and a 'connection lost' signal is emitted. Use at your own
                 discretion.
 
-        Signals:
-            signal_DAQ_updated:
-                Emitted by the worker when 'update' has finished.
-            signal_connection_lost:
-                Emitted by the worker during 'update' when 'not_alive_counter'
-                is equal to or larger than 'critical_not_alive_count'.
+            DAQ_timer_type (PyQt5.QtCore.Qt.TimerType, optional, default=
+                            PyQt5.QtCore.Qt.CoarseTimer):
+                The update interval is timed to a QTimer running inside
+                Worker_DAQ. The accuracy of the timer can be improved by setting
+                it to PyQt5.QtCore.Qt.PreciseTimer with ~1 ms granularity, but
+                it is resource heavy. Use sparingly.
 
+            DEBUG (bool, optional, default=False):
+                Show debug info in terminal? Warning: Slow! Do not leave on
+                unintentionally.
         """
-        signal_DAQ_updated     = QtCore.pyqtSignal()
-        signal_connection_lost = QtCore.pyqtSignal()
-
         def __init__(self,
                      ard1: Arduino_functions.Arduino,
                      ard2: Arduino_functions.Arduino,
-                     update_interval_ms,
-                     function_to_run_each_update=None,
-                     critical_not_alive_count=3):
+                     DAQ_update_interval_ms,
+                     DAQ_function_to_run_each_update=None,
+                     DAQ_critical_not_alive_count=3,
+                     DAQ_timer_type=QtCore.Qt.CoarseTimer,
+                     DEBUG=False):
             super().__init__(None)
-            self.DEBUG_color=ANSI.CYAN
+            self.DEBUG = DEBUG
+            self.DEBUG_color = ANSI.CYAN
 
             self.ard1 = ard1
             self.ard2 = ard2
-            self.ard1.not_alive_counter = 0
-            self.ard2.not_alive_counter = 0
-            self.update_counter = 0
-            self.update_interval_ms = update_interval_ms
-            self.function_to_run_each_update = function_to_run_each_update
-            self.critical_not_alive_count = critical_not_alive_count
+            self.update_interval_ms = DAQ_update_interval_ms
+            self.function_to_run_each_update = DAQ_function_to_run_each_update
+            self.critical_not_alive_count = DAQ_critical_not_alive_count
+            self.timer_type = DAQ_timer_type
 
-            # Calculate the DAQ rate around every 1 sec
             self.calc_DAQ_rate_every_N_iter = round(1e3/self.update_interval_ms)
-            self.obtained_DAQ_rate = np.nan
-            self.prev_tick = 0
+            self.prev_tick_DAQ_update = 0
+            self.prev_tick_DAQ_rate = 0
 
-            if DEBUG:
+            if self.DEBUG:
                 dprint("Worker_DAQ  %s init: thread %s" %
                        (self.dev.name, curThreadName()), self.DEBUG_color)
 
         @QtCore.pyqtSlot()
         def run(self):
-            if DEBUG:
+            if self.DEBUG:
                 dprint("Worker_DAQ  %s run : thread %s" %
                        (self.dev.name, curThreadName()), self.DEBUG_color)
 
             self.timer = QtCore.QTimer()
             self.timer.setInterval(self.update_interval_ms)
             self.timer.timeout.connect(self.update)
-            # CRITICAL, 1 ms resolution
-            self.timer.setTimerType(QtCore.Qt.PreciseTimer)
+            self.timer.setTimerType(self.timer_type)
             self.timer.start()
 
         @QtCore.pyqtSlot()
         def update(self):
-            self.update_counter += 1
+            self.outer.DAQ_update_counter += 1
             locker1 = QtCore.QMutexLocker(self.ard1.mutex)
             locker2 = QtCore.QMutexLocker(self.ard2.mutex)
 
-            if DEBUG:
+            if self.DEBUG:
                 dprint("Worker_DAQ  %s: iter %i" %
-                       ("Ards", self.update_counter),
+                       ("Ards", self.outer.DAQ_update_counter),
                        self.DEBUG_color)
 
+            # Keep track of the obtained DAQ update interval
+            now = QtCore.QDateTime.currentMSecsSinceEpoch()
+            self.outer.obtained_DAQ_update_interval_ms = (
+                    now - self.prev_tick_DAQ_update)
+            self.prev_tick_DAQ_update = now
+
             # Keep track of the obtained DAQ rate
-            # Start at iteration 3 to ensure we have stabilized
-            now = QDateTime.currentDateTime()
-            if self.update_counter == 3:
-                self.prev_tick = now
-            elif (self.update_counter %
-                  self.calc_DAQ_rate_every_N_iter == 3):
-                self.obtained_DAQ_rate = (self.calc_DAQ_rate_every_N_iter /
-                                          self.prev_tick.msecsTo(now) * 1e3)
-                self.prev_tick = now
+            # Start at iteration 5 to ensure we have stabilized
+            if self.outer.DAQ_update_counter == 5:
+                self.prev_tick_DAQ_rate = now
+            elif (self.outer.DAQ_update_counter %
+                  self.calc_DAQ_rate_every_N_iter == 5):
+                self.outer.obtained_DAQ_rate_Hz = (
+                        self.calc_DAQ_rate_every_N_iter /
+                        (now - self.prev_tick_DAQ_rate) * 1e3)
+                self.prev_tick_DAQ_rate = now
+
+#### DEBUG: PICK UP WORK FROM HERE
 
             # Check the alive counters
             if (self.ard1.not_alive_counter >= self.critical_not_alive_count):

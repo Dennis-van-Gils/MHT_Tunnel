@@ -20,25 +20,25 @@ import MHT_tunnel_constants as C
 import MHT_tunnel_GUI_v1p1  as MHT_tunnel_GUI
 
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
-from DvG_PyQt_FileLogger import FileLogger
+from DvG_pyqt_FileLogger import FileLogger
 
 import DvG_dev_Arduino__fun_serial            as Arduino_functions
-import DvG_dev_Arduino__PyQt_lib__MHT_version as Arduino_pyqt_lib
+import DvG_dev_Arduino__pyqt_lib__MHT_version as Arduino_pyqt_lib
 
 # Peripheral devices
 import DvG_dev_Bronkhorst_MFC__fun_RS232        as mfc_functions
-import DvG_dev_Bronkhorst_MFC__PyQt_lib         as mfc_pyqt_lib
+import DvG_dev_Bronkhorst_MFC__pyqt_lib         as mfc_pyqt_lib
 import DvG_dev_Keysight_N8700_PSU__fun_SCPI     as N8700_functions
-import DvG_dev_Keysight_N8700_PSU__PyQt_lib     as N8700_pyqt_lib
+import DvG_dev_Keysight_N8700_PSU__pyqt_lib     as N8700_pyqt_lib
 import DvG_dev_Picotech_PT104__fun_UDP          as pt104_functions
-import DvG_dev_Picotech_PT104__PyQt_lib         as pt104_pyqt_lib
+import DvG_dev_Picotech_PT104__pyqt_lib         as pt104_pyqt_lib
 import DvG_dev_ThermoFlex_chiller__fun_RS232    as chiller_functions
-import DvG_dev_ThermoFlex_chiller__PyQt_lib     as chiller_pyqt_lib
+import DvG_dev_ThermoFlex_chiller__pyqt_lib     as chiller_pyqt_lib
 import DvG_dev_Keysight_3497xA__fun_SCPI        as K3497xA_functions
-import DvG_dev_Keysight_3497xA__PyQt_lib        as K3497xA_pyqt_lib
+import DvG_dev_Keysight_3497xA__pyqt_lib        as K3497xA_pyqt_lib
 import DvG_dev_Compax3_traverse__fun_RS232      as compax3_functions
-import DvG_dev_Compax3_traverse__PyQt_lib       as compax3_pyqt_lib
-import DvG_dev_Compax3_step_navigator__PyQt_lib as step_nav_pyqt_lib
+import DvG_dev_Compax3_traverse__pyqt_lib       as compax3_pyqt_lib
+import DvG_dev_Compax3_step_navigator__pyqt_lib as step_nav_pyqt_lib
 
 # Global variables for date-time keeping
 cur_date_time = QDateTime.currentDateTime()
@@ -1390,10 +1390,10 @@ if __name__ == '__main__':
     if chiller.auto_connect(path_config=C.PATH_CONFIG_CHILLER):
         chiller.begin()
 
-    chiller_pyqt = chiller_pyqt_lib.ThermoFlex_chiller_pyqt(
-            dev=chiller, update_interval_ms=C.UPDATE_INTERVAL_CHILLER)
-    chiller_pyqt.worker_state.signal_GUI_update.connect(
-            update_GUI_chiller_extras)
+    chiller_pyqt = (
+            chiller_pyqt_lib.ThermoFlex_chiller_pyqt(chiller,
+                                                     C.UPDATE_INTERVAL_CHILLER))
+    chiller_pyqt.signal_DAQ_updated.connect(update_GUI_chiller_extras)
 
     # -----------------------------------
     #   Bronkhorst mass flow controller
@@ -1466,10 +1466,12 @@ if __name__ == '__main__':
                                        jerk=1e6,
                                        profile_number=2)
 
-    trav_horz_pyqt = compax3_pyqt_lib.Compax3_traverse_pyqt(trav_horz,
-                                                    C.UPDATE_INTERVAL_TRAVs)
-    trav_vert_pyqt = compax3_pyqt_lib.Compax3_traverse_pyqt(trav_vert,
-                                                    C.UPDATE_INTERVAL_TRAVs)
+    trav_horz_pyqt = (
+            compax3_pyqt_lib.Compax3_traverse_pyqt(trav_horz,
+                                                   C.UPDATE_INTERVAL_TRAVs))
+    trav_vert_pyqt = (
+            compax3_pyqt_lib.Compax3_traverse_pyqt(trav_vert,
+                                                   C.UPDATE_INTERVAL_TRAVs))
     travs_pyqt = [trav_horz_pyqt, trav_vert_pyqt]
 
     # Create Compax3 single step navigator
@@ -1488,14 +1490,14 @@ if __name__ == '__main__':
     if mux1.connect(rm):
         mux1.begin(C.MUX_1_SCPI_COMMANDS)
 
-    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
-            dev=mux1, scanning_interval_ms=C.MUX_1_SCANNING_INTERVAL)
+    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(mux1, C.MUX_1_SCANNING_INTERVAL)
 
     # -----------------------------------
     #   Picotech PT-104
     # -----------------------------------
     # NOTE: Should be the last device to connect to, because there is only a
     # 15 s time window where the PT-104 expects a new 'keep alive' signal.
+    # The next 'keep alive' will be send when the worker_DAQ thread is started.
 
     pt104 = pt104_functions.PT104(name="PT104")
     if pt104.connect(C.PT104_IP_ADDRESS, C.PT104_PORT):
@@ -1503,7 +1505,7 @@ if __name__ == '__main__':
         pt104.start_conversion(C.PT104_ENA_CHANNELS, C.PT104_GAIN_CHANNELS)
 
     pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, C.UPDATE_INTERVAL_PT104)
-    pt104_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI_PT104)
+    pt104_pyqt.signal_DAQ_updated.connect(update_GUI_PT104)
 
     # --------------------------------------------------------------------------
     #   Create main window
@@ -1543,11 +1545,11 @@ if __name__ == '__main__':
             psu_pyqt.process_pbtn_ENA_PID()
 
     # Keysight 3497xA
-    mux1_pyqt.grpb.setTitle(mux1_pyqt.dev.name + ": Heater temperatures")
-    mux1_pyqt.table_readings.setFixedWidth(150)
-    mux1_pyqt.table_readings.setColumnWidth(0, 90)
+    mux1_pyqt.qgrp.setTitle(mux1_pyqt.dev.name + ": Heater temperatures")
+    mux1_pyqt.qtbl_readings.setFixedWidth(150)
+    mux1_pyqt.qtbl_readings.setColumnWidth(0, 90)
     mux1_pyqt.set_table_readings_format("%.2f")
-    hbox1.addWidget(mux1_pyqt.grpb, stretch=1, alignment=QtCore.Qt.AlignTop)
+    hbox1.addWidget(mux1_pyqt.qgrp, stretch=1, alignment=QtCore.Qt.AlignTop)
 
     # Over-temperature protection
     hbox1.addWidget(window.grpb_OTP, stretch=0, alignment=QtCore.Qt.AlignTop)
@@ -1574,8 +1576,8 @@ if __name__ == '__main__':
 
     vbox = QtWid.QVBoxLayout()
     vbox.addWidget(window.grpb_trav_img)
-    vbox.addWidget(trav_step_nav.grpb)
-    vbox.setAlignment(trav_step_nav.grpb, QtCore.Qt.AlignLeft)
+    vbox.addWidget(trav_step_nav.qgrp)
+    vbox.setAlignment(trav_step_nav.qgrp, QtCore.Qt.AlignLeft)
     vbox.addStretch(1)
 
     hbox = QtWid.QHBoxLayout()

@@ -21,7 +21,7 @@ import numpy as np
 import MHT_tunnel_constants as C
 from MHT_tunnel_constants import FSM_FS_PROGRAMS
 
-from DvG_PyQt_controls import (create_LED_indicator,
+from DvG_pyqt_controls import (create_LED_indicator,
                                create_Relay_button,
                                create_Toggle_button,
                                create_Toggle_button_2,
@@ -29,7 +29,7 @@ from DvG_PyQt_controls import (create_LED_indicator,
                                SS_GROUP, SS_TEXT_MSGS,
                                SS_TEXTBOX_READ_ONLY,
                                SS_TITLE)
-from DvG_PyQt_ChartHistory import ChartHistory
+from DvG_pyqt_ChartHistory import ChartHistory
 
 
 # Fonts

@@ -391,37 +391,6 @@ class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         self.qgrp.setLayout(grid)
 
     # --------------------------------------------------------------------------
-    #   populate_SCPI_commands
-    # --------------------------------------------------------------------------
-
-    def populate_SCPI_commands(self):
-        self.qpte_SCPI_commands.setPlainText(
-                "%s" % '\n'.join(self.dev.SCPI_setup_commands))
-        self.qled_scanning_interval_ms.setText(
-                "%i" % self.worker_DAQ.update_interval_ms)
-
-    # --------------------------------------------------------------------------
-    #   Table widget related
-    # --------------------------------------------------------------------------
-
-    def populate_table_readings(self):
-        self.qtbl_readings.setRowCount(
-                len(self.dev.state.all_scan_list_channels))
-        self.qtbl_readings.setVerticalHeaderLabels(
-                self.dev.state.all_scan_list_channels)
-
-        for i in range(len(self.dev.state.all_scan_list_channels)):
-            item = QtWid.QTableWidgetItem("nan")
-            item.setTextAlignment(QtCore.Qt.AlignRight + QtCore.Qt.AlignCenter)
-            self.qtbl_readings.setItem(i, 0, item)
-
-    def set_table_readings_format(self, format_str):
-        # String format to use for the readings in the table widget
-        # When type is a single string, all rows will use this format.
-        # When type is a list of strings, rows will be formatted consecutively.
-        self.table_readings_format = format_str
-
-    # --------------------------------------------------------------------------
     #   update_GUI
     # --------------------------------------------------------------------------
 
@@ -471,6 +440,37 @@ class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         else:
             self.qlbl_mux_state.setText("Offline")
             self.qgrp.setEnabled(False)
+
+    # --------------------------------------------------------------------------
+    #   populate_SCPI_commands
+    # --------------------------------------------------------------------------
+
+    def populate_SCPI_commands(self):
+        self.qpte_SCPI_commands.setPlainText(
+                "%s" % '\n'.join(self.dev.SCPI_setup_commands))
+        self.qled_scanning_interval_ms.setText(
+                "%i" % self.worker_DAQ.update_interval_ms)
+
+    # --------------------------------------------------------------------------
+    #   Table widget related
+    # --------------------------------------------------------------------------
+
+    def populate_table_readings(self):
+        self.qtbl_readings.setRowCount(
+                len(self.dev.state.all_scan_list_channels))
+        self.qtbl_readings.setVerticalHeaderLabels(
+                self.dev.state.all_scan_list_channels)
+
+        for i in range(len(self.dev.state.all_scan_list_channels)):
+            item = QtWid.QTableWidgetItem("nan")
+            item.setTextAlignment(QtCore.Qt.AlignRight + QtCore.Qt.AlignCenter)
+            self.qtbl_readings.setItem(i, 0, item)
+
+    def set_table_readings_format(self, format_str):
+        # String format to use for the readings in the table widget
+        # When type is a single string, all rows will use this format.
+        # When type is a list of strings, rows will be formatted consecutively.
+        self.table_readings_format = format_str
 
     # --------------------------------------------------------------------------
     #   GUI functions
