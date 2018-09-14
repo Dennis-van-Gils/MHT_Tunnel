@@ -58,17 +58,6 @@ class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     In addition, it also provides PyQt5 GUI objects for control of the device.
     These can be incorporated into your application.
 
-    Extra functionality is provided to allow for automatic closing and opening
-    of a peripheral valve that could be in line with the mass flow controller.
-    This can be used to e.g. prevent liquid from entering the mass flow
-    controller from the upstream side when the flow rate has dropped to 0 for
-    some reason. Signals 'signal_valve_auto_close' and 'signal_valve_auto_open'
-    are emitted from within this class and the user can connect to these to
-    automate opening and closing of such a valve. There is a deadtime where the
-    auto close signal will not be emitted after a setpoint > 0 has been send,
-    because time might have to be given to the mass flow controller to get the
-    flow going.
-
     All device I/O operations will be offloaded to 'workers', each running in
     a newly created thread instead of in the main/GUI thread.
 
