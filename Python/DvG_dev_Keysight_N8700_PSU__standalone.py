@@ -14,10 +14,10 @@ from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
 from DvG_debug_functions import ANSI, dprint
-from DvG_PyQt_controls import SS_TEXTBOX_READ_ONLY
+from DvG_pyqt_controls import SS_TEXTBOX_READ_ONLY
 
 import DvG_dev_Keysight_N8700_PSU__fun_SCPI as N8700_functions
-import DvG_dev_Keysight_N8700_PSU__PyQt_lib as N8700_pyqt_lib
+import DvG_dev_Keysight_N8700_PSU__pyqt_lib as N8700_pyqt_lib
 
 # Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
 DEBUG = False

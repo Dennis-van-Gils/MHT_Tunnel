@@ -267,5 +267,4 @@ class Bronkhorst_MFC_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         setpoint = min(setpoint, self.dev.max_flow_rate)
         self.qled_send_setpoint.setText("%.2f" % setpoint)
 
-        self.worker_send.add_to_queue(self.dev.send_setpoint, setpoint)
-        self.worker_send.process_queue()
+        self.worker_send.queued_instruction(self.dev.send_setpoint, setpoint)
