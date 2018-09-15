@@ -130,14 +130,16 @@ class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
 
         self.attach_device(dev)
 
-        self.create_worker_DAQ(DAQ_update_interval_ms,
-                               self.DAQ_update,
-                               DAQ_critical_not_alive_count,
-                               DAQ_timer_type,
-                               DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(
+                DAQ_update_interval_ms=DAQ_update_interval_ms,
+                DAQ_function_to_run_each_update=self.DAQ_update,
+                DAQ_critical_not_alive_count=DAQ_critical_not_alive_count,
+                DAQ_timer_type=DAQ_timer_type,
+                DEBUG=DEBUG_worker_DAQ)
 
-        self.create_worker_send(self.alt_process_jobs_function,
-                                DEBUG=DEBUG_worker_send)
+        self.create_worker_send(
+                alt_process_jobs_function=self.alt_process_jobs_function,
+                DEBUG=DEBUG_worker_send)
 
         self.DAQ_postprocess_MUX_scan_function = (
                 DAQ_postprocess_MUX_scan_function)
