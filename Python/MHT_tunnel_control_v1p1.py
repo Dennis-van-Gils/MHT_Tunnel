@@ -1344,12 +1344,17 @@ if __name__ == '__main__':
     ard1.auto_connect(path_config=C.PATH_CONFIG_ARD1,
                       match_identity="Arduino_#1")
 
+    if not ard1.is_alive:
+        print("Check connection and try resetting the Arduino.")
+        print("Exiting...\n")
+        sys.exit(0)
+
     ard2 = Arduino_functions.Arduino(name="Ard 2", baudrate=115200)
     ard2.auto_connect(path_config=C.PATH_CONFIG_ARD2,
                       match_identity="Arduino_#2")
 
-    if not(ard1.is_alive and ard2.is_alive):
-        print("\nCheck connection and try resetting the Arduino(s)")
+    if not ard2.is_alive:
+        print("Check connection and try resetting the Arduino.")
         print("Exiting...\n")
         sys.exit(0)
 
