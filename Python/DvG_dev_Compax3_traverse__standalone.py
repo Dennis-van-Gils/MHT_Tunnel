@@ -5,7 +5,7 @@
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -15,11 +15,11 @@ from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
 from DvG_debug_functions import ANSI
-from DvG_PyQt_controls import SS_TEXTBOX_READ_ONLY, SS_GROUP
+from DvG_pyqt_controls import SS_TEXTBOX_READ_ONLY, SS_GROUP
 
-import DvG_dev_Compax3_traverse__fun_RS232 as compax3_functions
-import DvG_dev_Compax3_traverse__PyQt_lib  as compax3_pyqt_lib
-import DvG_dev_Compax3_step_navigator__PyQt_lib as step_nav_pyqt_lib
+import DvG_dev_Compax3_traverse__fun_RS232      as compax3_functions
+import DvG_dev_Compax3_traverse__pyqt_lib       as compax3_pyqt_lib
+import DvG_dev_Compax3_step_navigator__pyqt_lib as step_nav_pyqt_lib
 
 # ------------------------------------------------------------------------------
 #   MainWindow

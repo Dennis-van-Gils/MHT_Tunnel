@@ -1,128 +1,154 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""PyQt5 module to provide multithreaded communication and periodical data
+acquisition for a Thermo Scientific ThermoFlex recirculating chiller.
 """
-Dennis_van_Gils
-17-04-2018
-"""
-
-import numpy as np
-import queue
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "14-09-2018"
+__version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_debug_functions import ANSI, dprint
-from DvG_PyQt_controls import (create_Toggle_button,
+from DvG_pyqt_controls import (create_Toggle_button,
                                create_error_LED,
                                create_tiny_error_LED,
                                SS_GROUP)
+from DvG_debug_functions import print_fancy_traceback as pft
+
 import DvG_dev_ThermoFlex_chiller__fun_RS232 as chiller_functions
-
-# Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
-DEBUG = False
-
-# Short-hand aliases for DEBUG information
-curThread = QtCore.QThread.currentThread
+import DvG_dev_Base__pyqt_lib                as Dev_Base_pyqt_lib
 
 # Special characters
 CHAR_DEG_C = chr(176) + 'C'
+
+# Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
+DEBUG_worker_DAQ  = False
+DEBUG_worker_send = False
 
 # ------------------------------------------------------------------------------
 #   ThermoFlex_chiller_pyqt
 # ------------------------------------------------------------------------------
 
-class ThermoFlex_chiller_pyqt(QtWid.QWidget):
-    """Collection of PyQt related functions and objects to provide a GUI and
-    automated data transmission/acquisition for a Thermo Scientific ThermoFlex
-    recirculating chiller, from now on referred to as the 'device'.
+class ThermoFlex_chiller_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
+    """Manages multithreaded communication and periodical data acquisition for
+    a Thermo Scientific ThermoFlex recirculating chiller, referred to as the
+    'device'.
 
-    Create the block of PyQt GUI elements for the device and handle the control
-    functionality. The main QWidget object is of type [QtWidgets.QHBoxLayout]
-    and resides at 'self.hbly_GUI' This can be added to e.g. the main window of
-    the app.
-    !! No device I/O operations are allowed at this class level. It solely
-    focusses on handling the GUI !!
+    In addition, it also provides PyQt5 GUI objects for control of the device.
+    These can be incorporated into your application.
 
-    All device I/O operations will be offloaded to separate 'Workers', which
-    reside as nested classes inside of this class. Instances of these workers
-    should be transferred to separate threads and not be run on the same thread
-    as the GUI. This will keep the GUI and main routine responsive, without
-    blocking when communicating with the device.
-    !! No changes to the GUI are allowed inside these nested classes !!
+    All device I/O operations will be offloaded to 'workers', each running in
+    a newly created thread instead of in the main/GUI thread.
 
-    Two workers are created as class members at init of this class:
-        - worker_send
-            Maintains a queue where desired device I/O operations can be put on
-            the stack. The worker will periodically send out the operations to
-            the device as scheduled in the queue.
+        - Worker_DAQ:
+            Periodically acquires data from the device.
 
-        - worker_state
-            Periodically query the device for its state.
+        - Worker_send:
+            Maintains a thread-safe queue where desired device I/O operations
+            can be put onto, and sends the queued operations first in first out
+            (FIFO) to the device.
+
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
+
+    Args:
+        dev:
+            Reference to a 'DvG_dev_ThermoFlex_chiller__fun_RS232.
+            ThermoFlex_chiller' instance.
+
+        (*) DAQ_update_interval_ms
+        (*) DAQ_critical_not_alive_count
+        (*) DAQ_timer_type
+
+    Main methods:
+        (*) start_thread_worker_DAQ(...)
+        (*) start_thread_worker_send(...)
+        (*) close_all_threads()
+
+    Inner-class instances:
+        (*) worker_DAQ
+        (*) worker_send
+
+    Main data attributes:
+        (*) DAQ_update_counter
+        (*) obtained_DAQ_update_interval_ms
+        (*) obtained_DAQ_rate_Hz
+
+    Main GUI objects:
+        hbly_GUI (PyQt5.QtWidgets.QHBoxLayout)
+
+    Signals:
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
     """
+    signal_GUI_alarm_values_update = QtCore.pyqtSignal()
+    signal_GUI_PID_values_update   = QtCore.pyqtSignal()
 
-    def __init__(self, dev: chiller_functions.ThermoFlex_chiller,
-                 update_interval_ms=1000,
-                 DEBUG_color=ANSI.PURPLE, parent=None):
+    def __init__(self,
+                 dev: chiller_functions.ThermoFlex_chiller,
+                 DAQ_update_interval_ms=1000,
+                 DAQ_critical_not_alive_count=1,
+                 DAQ_timer_type=QtCore.Qt.CoarseTimer,
+                 parent=None):
         super(ThermoFlex_chiller_pyqt, self).__init__(parent=parent)
 
-        # Store reference to 'chiller_functions.ThermoFlex_chiller()' instance
-        self.dev = dev
+        self.attach_device(dev)
 
-        # Create mutex for proper multithreading
-        self.dev.mutex = QtCore.QMutex()
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DEBUG=DEBUG_worker_DAQ)
 
-        # Terminal text color for DEBUG information
-        self.DEBUG_color = DEBUG_color
+        self.create_worker_send(self.alt_process_jobs_function,
+                                DEBUG=DEBUG_worker_send)
 
-        # Periodically query the device for its state.
-        # !! To be put in a seperate thread !!
-        self.worker_state = self.Worker_state(dev, update_interval_ms,
-                                              DEBUG_color)
-
-        # Maintains a queue where desired device I/O operations can be put on
-        # the stack. The worker will periodically send out the operations to the
-        # device as scheduled in the queue.
-        # !! To be put in a seperate thread !!
-        self.worker_send = self.Worker_send(dev, DEBUG_color)
-
-        # Create the block of GUI elements for the device. The main QWidget
-        # object is of type [QtWidgets.QHBoxLayout] and resides at
-        # 'self.hbly_GUI'
         self.create_GUI()
+        self.signal_DAQ_updated.connect(self.update_GUI)
         self.connect_signals_to_slots()
-
-        # Make sure GUI is updated al least once to correctly reflect an offline
-        # chiller
         if not self.dev.is_alive:
-            self.update_GUI()
-
-        # Create and set up threads
-        if self.dev.is_alive:
-            self.thread_state = QtCore.QThread()
-            self.thread_state.setObjectName("%s_state" % self.dev.name)
-            self.worker_state.moveToThread(self.thread_state)
-            self.thread_state.started.connect(self.worker_state.run)
-
-            self.thread_send = QtCore.QThread()
-            self.thread_send.setObjectName("%s_send" % self.dev.name)
-            self.worker_send.moveToThread(self.thread_send)
-            self.thread_send.started.connect(self.worker_send.run)
-        else:
-            self.thread_state = None
-            self.thread_send = None
+            self.update_GUI()  # Correctly reflect an offline device
 
     # --------------------------------------------------------------------------
-    #   Create QGroupBoxes with controls
+    #   DAQ_update
+    # --------------------------------------------------------------------------
+
+    def DAQ_update(self):
+        success = self.dev.query_status_bits()
+        success &= self.dev.query_state()
+
+        return success
+
+    # --------------------------------------------------------------------------
+    #   alt_process_jobs_function
+    # --------------------------------------------------------------------------
+
+    def alt_process_jobs_function(self, func, args):
+        if (func == "signal_GUI_alarm_values_update"):
+            # Special instruction
+            self.signal_GUI_alarm_values_update.emit()
+        elif (func == "signal_GUI_PID_values_update"):
+            # Special instruction
+            self.signal_GUI_PID_values_update.emit()
+        else:
+            # Default job processing:
+            # Send I/O operation to the device
+            locker = QtCore.QMutexLocker(self.dev.mutex)
+            try:
+                func(*args)
+            except Exception as err:
+                pft(err)
+            locker.unlock()
+
+    # --------------------------------------------------------------------------
+    #   create_GUI
     # --------------------------------------------------------------------------
 
     def create_GUI(self):
-        # ------------------------------
-        #   Groupbox "Alarm values"
-        # ------------------------------
-
-        self.grpb_alarms = QtWid.QGroupBox("Alarm values")
-        self.grpb_alarms.setStyleSheet(SS_GROUP)
-
+        # Groupbox "Alarm values"
+        # -----------------------
         p = {'alignment': QtCore.Qt.AlignRight,
              'minimumWidth': 50,
              'maximumWidth': 30,
@@ -156,15 +182,12 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         grid.addWidget(QtWid.QLabel(CHAR_DEG_C)   , 4, 3)
         grid.addWidget(self.pbtn_read_alarm_values, 5, 0)
 
+        self.grpb_alarms = QtWid.QGroupBox("Alarm values")
+        self.grpb_alarms.setStyleSheet(SS_GROUP)
         self.grpb_alarms.setLayout(grid)
 
-        # ------------------------------
-        #   Groupbox "PID feedback"
-        # ------------------------------
-
-        self.grpb_PID = QtWid.QGroupBox("PID feedback")
-        self.grpb_PID.setStyleSheet(SS_GROUP)
-
+        # Groupbox "PID feedback"
+        # -----------------------
         p = {'alignment': QtCore.Qt.AlignRight,
              'minimumWidth': 50,
              'maximumWidth': 30,
@@ -190,15 +213,12 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         grid.addWidget(QtWid.QLabel("minutes")                    , 3, 2)
         grid.addWidget(self.pbtn_read_PID_values                  , 4, 0)
 
+        self.grpb_PID = QtWid.QGroupBox("PID feedback")
+        self.grpb_PID.setStyleSheet(SS_GROUP)
         self.grpb_PID.setLayout(grid)
 
-        # ------------------------------
-        #   Groupbox "Status bits"
-        # ------------------------------
-
-        self.grpb_SBs = QtWid.QGroupBox("Status bits")
-        self.grpb_SBs.setStyleSheet(SS_GROUP)
-
+        # Groupbox "Status bits"
+        # ----------------------
         self.SB_tripped                = create_error_LED()
         self.SB_tripped.setText("No faults")
         self.SB_high_temp_fixed        = create_tiny_error_LED()
@@ -270,15 +290,12 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         grid.addWidget(QtWid.QLabel("low pressure factory fault", **p) , 22, 0)
         grid.addWidget(self.SB_low_pressure_factory                    , 22, 1)
 
+        self.grpb_SBs = QtWid.QGroupBox("Status bits")
+        self.grpb_SBs.setStyleSheet(SS_GROUP)
         self.grpb_SBs.setLayout(grid)
 
-        # ------------------------------
-        #   Groupbox "Control"
-        # ------------------------------
-
-        self.grpb_control = QtWid.QGroupBox("Control")
-        self.grpb_control.setStyleSheet(SS_GROUP)
-
+        # Groupbox "Control"
+        # ------------------
         p = {'alignment': QtCore.Qt.AlignRight,
              'minimumWidth': 50,
              'maximumWidth': 30}
@@ -339,6 +356,8 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         grid.addWidget(QtWid.QLabel("bar")                         , 15, 2)
         grid.addWidget(self.lbl_update_counter                     , 16, 0, 1, 2)
 
+        self.grpb_control = QtWid.QGroupBox("Control")
+        self.grpb_control.setStyleSheet(SS_GROUP)
         self.grpb_control.setLayout(grid)
 
         # --------------------------------------
@@ -376,7 +395,7 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         """
         if self.dev.is_alive:
             # At startup
-            if self.dev.update_counter == 1:
+            if self.DAQ_update_counter == 1:
                 self.update_GUI_alarm_values()
                 self.update_GUI_PID_values()
                 self.send_setpoint.setText("%.1f" % self.dev.state.setpoint)
@@ -428,7 +447,7 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
             self.SB_phase_monitor.setChecked(SBs.phase_monitor_fault)
             self.SB_sense_5V.setChecked(SBs.sense_5V_fault)
 
-            self.lbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.lbl_update_counter.setText("%s" % self.DAQ_update_counter)
         else:
             self.grpb_alarms.setEnabled(False)
             self.grpb_PID.setEnabled(False)
@@ -463,19 +482,21 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
     @QtCore.pyqtSlot()
     def process_pbtn_on(self):
         if self.dev.status_bits.running:
-            self.worker_send.queue.put((self.dev.turn_off,))
+            self.worker_send.queued_instruction(self.dev.turn_off)
         else:
-            self.worker_send.queue.put((self.dev.turn_on,))
+            self.worker_send.queued_instruction(self.dev.turn_on)
 
     @QtCore.pyqtSlot()
     def process_pbtn_read_alarm_values(self):
-        self.worker_send.queue.put((self.dev.query_alarm_values_and_units,))
-        self.worker_send.queue.put(("signal_GUI_alarm_values_update",))
+        self.worker_send.add_to_queue(self.dev.query_alarm_values_and_units)
+        self.worker_send.add_to_queue("signal_GUI_alarm_values_update")
+        self.worker_send.process_queue()
 
     @QtCore.pyqtSlot()
     def process_pbtn_read_PID_values(self):
-        self.worker_send.queue.put((self.dev.query_PID_values,))
-        self.worker_send.queue.put(("signal_GUI_PID_values_update",))
+        self.worker_send.add_to_queue(self.dev.query_PID_values)
+        self.worker_send.add_to_queue("signal_GUI_PID_values_update")
+        self.worker_send.process_queue()
 
     @QtCore.pyqtSlot()
     def send_setpoint_from_textbox(self):
@@ -486,12 +507,11 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         except:
             raise()
 
-        setpoint = np.clip(setpoint,
-                           self.dev.min_setpoint_degC,
-                           self.dev.max_setpoint_degC)
+        setpoint = max(setpoint, self.dev.min_setpoint_degC)
+        setpoint = min(setpoint, self.dev.max_setpoint_degC)
         self.send_setpoint.setText("%.1f" % setpoint)
 
-        self.worker_send.queue.put((self.dev.send_setpoint, setpoint))
+        self.worker_send.queued_instruction(self.dev.send_setpoint, setpoint)
 
     # --------------------------------------------------------------------------
     #   connect_signals_to_slots
@@ -506,175 +526,6 @@ class ThermoFlex_chiller_pyqt(QtWid.QWidget):
         self.send_setpoint.editingFinished.connect(
                 self.send_setpoint_from_textbox)
 
-        self.worker_state.signal_GUI_update.connect(self.update_GUI)
-        self.worker_send.signal_GUI_alarm_values_update.connect(
+        self.signal_GUI_alarm_values_update.connect(
                 self.update_GUI_alarm_values)
-        self.worker_send.signal_GUI_PID_values_update.connect(
-                self.update_GUI_PID_values)
-
-    # --------------------------------------------------------------------------
-    #   Worker_send
-    # --------------------------------------------------------------------------
-
-    class Worker_send(QtCore.QObject):
-        """No changes to the GUI are allowed inside this class!
-        """
-        signal_GUI_alarm_values_update = QtCore.pyqtSignal()
-        signal_GUI_PID_values_update = QtCore.pyqtSignal()
-
-        def __init__(self, dev: chiller_functions.ThermoFlex_chiller,
-                     DEBUG_color=ANSI.YELLOW):
-            super().__init__(None)
-
-            self.dev = dev
-            self.running = True
-
-            # Put a 'sentinel' value in the queue to signal the end. This way we
-            # can prevent a Queue.Empty exception being thrown later on when we
-            # will read the queue till the end.
-            self.sentinel = None
-            self.queue = queue.Queue()
-            self.queue.put(self.sentinel)
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                dprint("Worker_send  %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_send  %s run : thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-            while self.running:
-                #if DEBUG:
-                #    dprint("Worker_send  %s queued: %s" %
-                #           (self.dev.name, self.queue.qsize() - 1),
-                #           self.DEBUG_color)
-
-                # Process all jobs until the queue is empty
-                for job in iter(self.queue.get_nowait, self.sentinel):
-                    func = job[0]
-                    args = job[1:]
-
-                    if (func == "signal_GUI_alarm_values_update"):
-                        # Special instruction
-                        if DEBUG:
-                            dprint("Worker_send  %s: %s %s" %
-                                   (self.dev.name, func, args),
-                                   self.DEBUG_color)
-                        self.signal_GUI_alarm_values_update.emit()
-                    elif (func == "signal_GUI_PID_values_update"):
-                        # Special instruction
-                        if DEBUG:
-                            dprint("Worker_send  %s: %s %s" %
-                                   (self.dev.name, func, args),
-                                   self.DEBUG_color)
-                        self.signal_GUI_PID_values_update.emit()
-                    else:
-                        # Send I/O operation to the chiller device
-                        if DEBUG:
-                            dprint("Worker_send  %s: %s %s" %
-                                   (self.dev.name, func.__name__, args),
-                                   self.DEBUG_color)
-                        locker = QtCore.QMutexLocker(self.dev.mutex)
-                        func(*args)
-                        # DEBUG: Might need to wait short time here for proper I/O?
-                        locker.unlock()
-                self.queue.put(self.sentinel)  # Put sentinel back in
-
-                # Slow down thread
-                QtCore.QThread.msleep(50)
-
-            if DEBUG:
-                dprint("Worker_send  %s: done running" % self.dev.name,
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def stop(self):
-            self.running = False
-
-    # --------------------------------------------------------------------------
-    #   Worker_state
-    # --------------------------------------------------------------------------
-
-    class Worker_state(QtCore.QObject):
-        """This Worker will read the status and readings of the device at a
-        fixed rate. No changes to the GUI are allowed inside this class!
-        """
-        signal_GUI_update = QtCore.pyqtSignal()
-        #connection_lost = QtCore.pyqtSignal()
-
-        def __init__(self, dev: chiller_functions.ThermoFlex_chiller,
-                     update_interval_ms=1000,
-                     DEBUG_color=ANSI.YELLOW):
-            super().__init__(None)
-
-            self.dev = dev
-            self.dev.update_counter = 0
-            self.update_interval_ms = update_interval_ms
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                 dprint("Worker_state %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_state %s run : thread %s" %
-                   (self.dev.name, curThread().objectName()),
-                   self.DEBUG_color)
-
-            self.timer = QtCore.QTimer()
-            self.timer.setInterval(self.update_interval_ms)
-            self.timer.timeout.connect(self.acquire_state)
-            self.timer.start()
-
-        def acquire_state(self):
-            self.dev.update_counter += 1
-
-            if DEBUG:
-                    dprint("Worker_state %s: iter %i" %
-                           (self.dev.name, self.dev.update_counter),
-                           self.DEBUG_color)
-
-            locker = QtCore.QMutexLocker(self.dev.mutex)
-            self.dev.query_status_bits()
-            self.dev.query_state()
-            locker.unlock()
-
-            # TO DO: check for connection lost
-            #self.connection_lost.emit()
-
-            self.signal_GUI_update.emit()
-
-    # --------------------------------------------------------------------------
-    #   close_threads
-    # --------------------------------------------------------------------------
-
-    def close_threads(self):
-        if self.thread_state is not None:
-            #self.worker_state.stop()  # Not necessary
-            self.thread_state.quit()
-            print("Closing thread %-13s: " %
-                  self.thread_state.objectName(), end='')
-            if self.thread_state.wait(2000): print("done.\n", end='')
-            else: print("FAILED.\n", end='')
-
-        # Close thread_send
-        if self.thread_send is not None:
-            self.worker_send.stop()
-            self.thread_send.quit()
-            print("Closing thread %-13s: " %
-                  self.thread_send.objectName(), end='')
-            if self.thread_send.wait(2000): print("done.\n", end='')
-            else: print("FAILED.\n", end='')
+        self.signal_GUI_PID_values_update.connect(self.update_GUI_PID_values)

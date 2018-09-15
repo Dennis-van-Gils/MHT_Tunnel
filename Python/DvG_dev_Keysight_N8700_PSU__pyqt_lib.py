@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Dennis van Gils
-17-04-2018
+15-09-2018
 """
 
 import queue
@@ -14,7 +14,7 @@ from PyQt5 import QtWidgets as QtWid
 
 import DvG_PID_controller
 from DvG_debug_functions import ANSI, dprint
-from DvG_PyQt_controls import (create_Toggle_button,
+from DvG_pyqt_controls import (create_Toggle_button,
                                create_tiny_error_LED,
                                SS_TEXTBOX_ERRORS,
                                SS_GROUP)

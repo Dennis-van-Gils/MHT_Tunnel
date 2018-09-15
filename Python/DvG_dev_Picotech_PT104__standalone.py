@@ -6,7 +6,7 @@ temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -14,10 +14,10 @@ import sys
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_PyQt_controls import SS_TEXTBOX_READ_ONLY
+from DvG_pyqt_controls import SS_TEXTBOX_READ_ONLY
 
 import DvG_dev_Picotech_PT104__fun_UDP  as pt104_functions
-import DvG_dev_Picotech_PT104__PyQt_lib as pt104_pyqt_lib
+import DvG_dev_Picotech_PT104__pyqt_lib as pt104_pyqt_lib
 
 # ------------------------------------------------------------------------------
 #   MainWindow

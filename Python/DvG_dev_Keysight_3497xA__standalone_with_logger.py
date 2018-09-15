@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Multithreaded PyQt5 GUI to interface with a a Keysight (former HP or Agilent)
+34970A/34972A data acquisition/switch unit.
 """
-Dennis van Gils
-05-07-2018
-"""
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "14-09-2018"
+__version__     = "1.0.0"
 
 import sys
+
 import visa
 import pylab
+import numpy as np
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 from PyQt5.QtCore import QDateTime
-
 import pyqtgraph as pg
-import numpy as np
 
-from DvG_PyQt_controls import (create_Toggle_button,
+from DvG_pyqt_controls import (create_Toggle_button,
                                SS_TEXTBOX_READ_ONLY,
                                SS_GROUP)
-from DvG_PyQt_ChartHistory import ChartHistory
-from DvG_debug_functions import dprint
+from DvG_pyqt_ChartHistory import ChartHistory
+from DvG_pyqt_FileLogger import FileLogger
 
 import DvG_dev_Keysight_3497xA__fun_SCPI as K3497xA_functions
-import DvG_dev_Keysight_3497xA__PyQt_lib as K3497xA_pyqt_lib
-
-# Global variables for date-time keeping
-main_start_time = QDateTime.currentDateTime()
+import DvG_dev_Keysight_3497xA__pyqt_lib as K3497xA_pyqt_lib
 
 # ------------------------------------------------------------------------------
 #   MainWindow
@@ -43,22 +44,22 @@ class MainWindow(QtWid.QWidget):
         #   Top grid
         # ----------------------------------------------------------------------
 
-        self.lbl_title = QtWid.QLabel("Keysight 3497xA control",
+        self.qlbl_title = QtWid.QLabel("Keysight 3497xA control",
                 font=QtGui.QFont("Palatino", 14, weight=QtGui.QFont.Bold))
-        self.str_cur_date_time = QtWid.QLabel("00-00-0000    00:00:00")
-        self.pbtn_record = create_Toggle_button(
+        self.qlbl_cur_date_time = QtWid.QLabel("00-00-0000    00:00:00")
+        self.qpbt_record = create_Toggle_button(
                 "Click to start recording to file", minimumHeight=40)
-        self.pbtn_record.setMinimumWidth(400)
+        self.qpbt_record.setMinimumWidth(400)
 
-        self.pbtn_exit = QtWid.QPushButton("Exit")
-        self.pbtn_exit.clicked.connect(self.close)
-        self.pbtn_exit.setMinimumHeight(30)
+        self.qpbt_exit = QtWid.QPushButton("Exit")
+        self.qpbt_exit.clicked.connect(self.close)
+        self.qpbt_exit.setMinimumHeight(30)
 
         grid_top = QtWid.QGridLayout()
-        grid_top.addWidget(self.lbl_title        , 0, 0, QtCore.Qt.AlignCenter)
-        grid_top.addWidget(self.pbtn_exit        , 0, 2, QtCore.Qt.AlignRight)
-        grid_top.addWidget(self.str_cur_date_time, 1, 0, QtCore.Qt.AlignCenter)
-        grid_top.addWidget(self.pbtn_record      , 2, 0, QtCore.Qt.AlignCenter)
+        grid_top.addWidget(self.qlbl_title        , 0, 0, QtCore.Qt.AlignCenter)
+        grid_top.addWidget(self.qpbt_exit         , 0, 2, QtCore.Qt.AlignRight)
+        grid_top.addWidget(self.qlbl_cur_date_time, 1, 0, QtCore.Qt.AlignCenter)
+        grid_top.addWidget(self.qpbt_record       , 2, 0, QtCore.Qt.AlignCenter)
         grid_top.setColumnMinimumWidth(0, 420)
         grid_top.setColumnStretch(1, 1)
 
@@ -99,55 +100,53 @@ class MainWindow(QtWid.QWidget):
         #   Show curves selection
         # ----------------------------------------------------------------------
 
-        grpb_show_curves = QtWid.QGroupBox("Show")
-        grpb_show_curves.setStyleSheet(SS_GROUP)
-
+        qgrp_show_curves = QtWid.QGroupBox("Show")
+        qgrp_show_curves.setStyleSheet(SS_GROUP)
         self.grid_show_curves = QtWid.QGridLayout()
         self.grid_show_curves.setVerticalSpacing(0)
-
-        grpb_show_curves.setLayout(self.grid_show_curves)
+        qgrp_show_curves.setLayout(self.grid_show_curves)
 
         # ----------------------------------------------------------------------
         #   Chart history time range selection
         # ----------------------------------------------------------------------
 
-        grpb_history = QtWid.QGroupBox("History")
-        grpb_history.setStyleSheet(SS_GROUP)
-
         p = {'maximumWidth': 70}
-        self.pbtn_history_1 = QtWid.QPushButton("00:30", **p)
-        self.pbtn_history_2 = QtWid.QPushButton("01:00", **p)
-        self.pbtn_history_3 = QtWid.QPushButton("03:00", **p)
-        self.pbtn_history_4 = QtWid.QPushButton("05:00", **p)
-        self.pbtn_history_5 = QtWid.QPushButton("10:00", **p)
-        self.pbtn_history_6 = QtWid.QPushButton("30:00", **p)
+        self.qpbt_history_1 = QtWid.QPushButton("00:30", **p)
+        self.qpbt_history_2 = QtWid.QPushButton("01:00", **p)
+        self.qpbt_history_3 = QtWid.QPushButton("03:00", **p)
+        self.qpbt_history_4 = QtWid.QPushButton("05:00", **p)
+        self.qpbt_history_5 = QtWid.QPushButton("10:00", **p)
+        self.qpbt_history_6 = QtWid.QPushButton("30:00", **p)
 
-        self.pbtn_history_clear = QtWid.QPushButton("clear", **p)
-        self.pbtn_history_clear.clicked.connect(self.clear_all_charts)
+        self.qpbt_history_clear = QtWid.QPushButton("clear", **p)
+        self.qpbt_history_clear.clicked.connect(self.clear_all_charts)
 
         grid = QtWid.QGridLayout()
         grid.setVerticalSpacing(0)
-        grid.addWidget(self.pbtn_history_1, 0, 0)
-        grid.addWidget(self.pbtn_history_2, 1, 0)
-        grid.addWidget(self.pbtn_history_3, 2, 0)
-        grid.addWidget(self.pbtn_history_4, 3, 0)
-        grid.addWidget(self.pbtn_history_5, 4, 0)
-        grid.addWidget(self.pbtn_history_6, 5, 0)
-        grid.addWidget(self.pbtn_history_clear, 6, 0)
+        grid.addWidget(self.qpbt_history_1, 0, 0)
+        grid.addWidget(self.qpbt_history_2, 1, 0)
+        grid.addWidget(self.qpbt_history_3, 2, 0)
+        grid.addWidget(self.qpbt_history_4, 3, 0)
+        grid.addWidget(self.qpbt_history_5, 4, 0)
+        grid.addWidget(self.qpbt_history_6, 5, 0)
+        grid.addWidget(self.qpbt_history_clear, 6, 0)
 
-        grpb_history.setLayout(grid)
+        qgrp_history = QtWid.QGroupBox("History")
+        qgrp_history.setStyleSheet(SS_GROUP)
+        qgrp_history.setLayout(grid)
 
         # ----------------------------------------------------------------------
         #   Bottom grid
         # ----------------------------------------------------------------------
 
         vbox1 = QtWid.QVBoxLayout()
-        vbox1.addWidget(grpb_show_curves, stretch=0, alignment=QtCore.Qt.AlignTop)
-        vbox1.addWidget(grpb_history, stretch=0, alignment=QtCore.Qt.AlignTop)
+        vbox1.addWidget(qgrp_show_curves, stretch=0,
+                        alignment=QtCore.Qt.AlignTop)
+        vbox1.addWidget(qgrp_history, stretch=0, alignment=QtCore.Qt.AlignTop)
         vbox1.addStretch(1)
 
         hbox1 = QtWid.QHBoxLayout()
-        hbox1.addWidget(mux_pyqt.grpb, stretch=0, alignment=QtCore.Qt.AlignTop)
+        hbox1.addWidget(mux_pyqt.qgrp, stretch=0, alignment=QtCore.Qt.AlignTop)
         hbox1.addWidget(self.gw_mux, stretch=1)
         hbox1.addLayout(vbox1)
 
@@ -160,6 +159,7 @@ class MainWindow(QtWid.QWidget):
         vbox.addLayout(hbox1)
         vbox.addStretch(1)
 
+    @QtCore.pyqtSlot()
     def clear_all_charts(self):
         str_msg = "Are you sure you want to clear all charts?"
         reply = QtWid.QMessageBox.warning(self, "Clear charts", str_msg,
@@ -174,11 +174,12 @@ class MainWindow(QtWid.QWidget):
 #   update_GUI
 # ------------------------------------------------------------------------------
 
+@QtCore.pyqtSlot()
 def update_GUI():
     cur_date_time = QDateTime.currentDateTime()
-    window.str_cur_date_time.setText(cur_date_time.toString("dd-MM-yyyy") +
-                                     "    " +
-                                     cur_date_time.toString("HH:mm:ss"))
+    window.qlbl_cur_date_time.setText(cur_date_time.toString("dd-MM-yyyy") +
+                                      "    " +
+                                      cur_date_time.toString("HH:mm:ss"))
 
     # Update curves
     [CH.update_curve() for CH in window.CHs_mux]
@@ -189,134 +190,45 @@ def update_GUI():
                 window.chkbs_show_curves[i].isChecked())
 
 # ------------------------------------------------------------------------------
-#   This function should be 'injected' into the 'update' method of the
-#   [dev_Keysight_3497xA__PyQt_lib.Worker_state] instance. This is done by
-#   assigning this function to [Worker_state.external_function_to_run_in_update]
-#   NOTE: no GUI changes are allowed in this function.
 # ------------------------------------------------------------------------------
-
-def mux_process():
-    cur_date_time = QDateTime.currentDateTime()
-
-    # DEBUG info
-    #dprint("thread: %s" % QtCore.QThread.currentThread().objectName())
-
-    if mux_pyqt.worker_state.ENA_periodic_scanning:
-        readings = mux.state.readings
-
-        for i in range(N_channels):
-            if readings[i] > 9.8e37:
-                readings[i] = np.nan
-    else:
-        # Multiplexer is not scanning. No readings available
-        readings = [np.nan] * N_channels
-        mux.state.readings = readings
-
-    # Add readings to charts
-    elapsed_time = main_start_time.msecsTo(cur_date_time)
-    for i in range(N_channels):
-        window.CHs_mux[i].add_new_reading(elapsed_time, readings[i])
-
-    # ----------------------------------------------------------------------
-    #   Logging to file
-    # ----------------------------------------------------------------------
-
-    locker = QtCore.QMutexLocker(mux_pyqt.mutex_log)
-
-    if mux_pyqt.startup_recording:
-        mux_pyqt.startup_recording = False
-        mux_pyqt.is_recording = True
-
-        # Create log file on disk
-        mux_pyqt.fn_log = ("d:/data/mux_" +
-                           cur_date_time.toString("yyMMdd_HHmmss") +
-                           ".txt")
-        window.pbtn_record.setText("Recording to file: " + mux_pyqt.fn_log)
-        mux_pyqt.log_start_time = cur_date_time
-
-        mux_pyqt.f_log = open(mux_pyqt.fn_log, 'w')
-        try:
-            mux_pyqt.f_log.write("time[s]\t")
-            for i in range(N_channels - 1):
-                mux_pyqt.f_log.write("CH%s\t" %
-                                     mux.state.all_scan_list_channels[i])
-            mux_pyqt.f_log.write("CH%s\n" %
-                                 mux.state.all_scan_list_channels[-1])
-        except:
-            raise
-
-    if mux_pyqt.closing_recording:
-        if mux_pyqt.is_recording:
-            mux_pyqt.f_log.close()
-        mux_pyqt.closing_recording = False
-        mux_pyqt.is_recording = False
-
-    locker.unlock()
-
-    if mux_pyqt.is_recording:
-        # Add new data to the log
-        log_elapsed_time = mux_pyqt.log_start_time.msecsTo(cur_date_time)/1e3  # [sec]
-        try:
-            mux_pyqt.f_log.write("%.3f" % log_elapsed_time)
-            for i in range(N_channels):
-                if len(mux.state.readings) <= i:
-                    mux_pyqt.f_log.write("\t%.5e" % np.nan)
-                else:
-                    mux_pyqt.f_log.write("\t%.5e" % mux.state.readings[i])
-            mux_pyqt.f_log.write("\n")
-        except:
-            raise
-
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-
-def process_pbtn_record():
-    locker = QtCore.QMutexLocker(mux_pyqt.mutex_log)
-    if (window.pbtn_record.isChecked()):
-        mux_pyqt.startup_recording = True
-        mux_pyqt.closing_recording = False
-    else:
-        mux_pyqt.startup_recording = False
-        mux_pyqt.closing_recording = True
-        window.pbtn_record.setText("Click to start recording to file")
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_1():
+def process_qpbt_history_1():
     change_history_axes(time_axis_factor=1e3,      # transform [msec] to [sec]
                         time_axis_range=-30,       # [sec]
                         time_axis_label=
                         '<span style="font-size:12pt">history (sec)</span>')
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_2():
+def process_qpbt_history_2():
     change_history_axes(time_axis_factor=1e3,      # transform [msec] to [sec]
                         time_axis_range=-60,       # [sec]
                         time_axis_label=
                         '<span style="font-size:12pt">history (sec)</span>')
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_3():
+def process_qpbt_history_3():
     change_history_axes(time_axis_factor=60e3,     # transform [msec] to [min]
                         time_axis_range=-3,        # [min]
                         time_axis_label=
                         '<span style="font-size:12pt">history (min)</span>')
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_4():
+def process_qpbt_history_4():
     change_history_axes(time_axis_factor=60e3,     # transform [msec] to [min]
                         time_axis_range=-5,        # [min]
                         time_axis_label=
                         '<span style="font-size:12pt">history (min)</span>')
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_5():
+def process_qpbt_history_5():
     change_history_axes(time_axis_factor=60e3,     # transform [msec] to [min]
                         time_axis_range=-10,       # [min]
                         time_axis_label=
                         '<span style="font-size:12pt">history (min)</span>')
 
 @QtCore.pyqtSlot()
-def process_pbtn_history_6():
+def process_qpbt_history_6():
     change_history_axes(time_axis_factor=60e3,     # transform [msec] to [min]
                         time_axis_range=-30,       # [min]
                         time_axis_label=
@@ -329,7 +241,8 @@ def change_history_axes(time_axis_factor, time_axis_range, time_axis_label):
     for i in range(N_channels):
         window.CHs_mux[i].x_axis_divisor = time_axis_factor
 
-def process_pbtn_show_all_curves():
+@QtCore.pyqtSlot()
+def process_qpbt_show_all_curves():
     # First: if any curve is hidden --> show all
     # Second: if all curves are shown --> hide all
 
@@ -343,42 +256,98 @@ def process_pbtn_show_all_curves():
         for i in range(N_channels):
             window.chkbs_show_curves[i].setChecked(False)
 
+@QtCore.pyqtSlot()
+def process_qpbt_record():
+    if (window.qpbt_record.isChecked()):
+        file_logger.starting = True
+    else:
+        file_logger.stopping = True
+
+@QtCore.pyqtSlot(str)
+def set_text_qpbt_record(text_str):
+    window.qpbt_record.setText(text_str)
+
 # ------------------------------------------------------------------------------
 #   about_to_quit
 # ------------------------------------------------------------------------------
 
 def about_to_quit():
     print("About to quit")
-
-    # First make sure to process all pending events
     app.processEvents()
+    mux_pyqt.close_all_threads()
+    file_logger.close_log()
 
-    # Close threads
-    mux_pyqt.close_threads()
-
-    # Close log if open
-    locker = QtCore.QMutexLocker(mux_pyqt.mutex_log)
-    if mux_pyqt.is_recording:
-        mux_pyqt.f_log.close()
-        mux_pyqt.startup_recording = False
-        mux_pyqt.closing_recording = False
-        mux_pyqt.is_recording = False
-    locker.unlock()
-
-    # Close device connections
     try: mux.close()
     except: pass
-
-    # Close VISA resource manager
     try: rm.close()
     except: pass
 
 # ------------------------------------------------------------------------------
+#   DAQ_postprocess_MUX_scan_function
 # ------------------------------------------------------------------------------
-#
-#   MAIN
-#
+
+def DAQ_postprocess_MUX_scan_function():
+    """Will be called during an 'worker_DAQ' update, after a mux scan has been
+    performed. We use it to parse out the scan readings into separate variables
+    and log it to file.
+    """
+    cur_date_time = QDateTime.currentDateTime()
+    epoch_time = cur_date_time.toMSecsSinceEpoch()
+
+    # DEBUG info
+    #dprint("thread: %s" % QtCore.QThread.currentThread().objectName())
+
+    if mux_pyqt.is_MUX_scanning:
+        readings = mux.state.readings
+        for i in range(N_channels):
+            if readings[i] > K3497xA_pyqt_lib.INFINITY_CAP:
+                readings[i] = np.nan
+    else:
+        readings = [np.nan] * N_channels
+        mux.state.readings = readings
+
+    # Add readings to charts
+    for i in range(N_channels):
+        window.CHs_mux[i].add_new_reading(epoch_time, readings[i])
+
+    # ----------------------------------------------------------------------
+    #   Logging to file
+    # ----------------------------------------------------------------------
+
+    if file_logger.starting:
+        fn_log = ("d:/data/mux_" +
+                  cur_date_time.toString("yyMMdd_HHmmss") + ".txt")
+        if file_logger.create_log(epoch_time, fn_log, mode='w'):
+            file_logger.signal_set_recording_text.emit(
+                "Recording to file: " + fn_log)
+
+            # Header
+            file_logger.write("time[s]\t")
+            for i in range(N_channels - 1):
+                file_logger.write("CH%s\t" %
+                                  mux.state.all_scan_list_channels[i])
+            file_logger.write("CH%s\n" %
+                              mux.state.all_scan_list_channels[-1])
+
+    if file_logger.stopping:
+        file_logger.signal_set_recording_text.emit(
+            "Click to start recording to file")
+        file_logger.close_log()
+
+    if file_logger.is_recording:
+        log_elapsed_time = (epoch_time - file_logger.start_time)/1e3  # [sec]
+
+        # Add new data to the log
+        file_logger.write("%.3f" % log_elapsed_time)
+        for i in range(N_channels):
+            if len(mux.state.readings) <= i:
+                file_logger.write("\t%.5e" % np.nan)
+            else:
+                file_logger.write("\t%.5e" % mux.state.readings[i])
+        file_logger.write("\n")
+
 # ------------------------------------------------------------------------------
+#   Main
 # ------------------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -417,10 +386,9 @@ if __name__ == '__main__':
                 "conf:res 1e5,%s" % scan_list,
                 "sens:res:nplc 1,%s" % scan_list,
                 "rout:scan %s" % scan_list]
-    #"""
 
     # --------------------------------------------------------------------------
-    #   Connect to and set up Keysight 3497xA
+    #   Connect to Keysight 3497xA (mux)
     # --------------------------------------------------------------------------
 
     rm = visa.ResourceManager()
@@ -432,6 +400,7 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
     #   Create application
     # --------------------------------------------------------------------------
+    QtCore.QThread.currentThread().setObjectName('MAIN')    # For DEBUG info
 
     app = 0    # Work-around for kernel crash when using Spyder IDE
     app = QtWid.QApplication(sys.argv)
@@ -439,20 +408,13 @@ if __name__ == '__main__':
     app.setStyleSheet(SS_TEXTBOX_READ_ONLY)
     app.aboutToQuit.connect(about_to_quit)
 
-    # For DEBUG info
-    QtCore.QThread.currentThread().setObjectName('MAIN')
-
     # Create PyQt GUI interfaces and communication threads per 3497xA
     mux_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
-            dev=mux, scanning_interval_ms=MUX_SCANNING_INTERVAL_MS)
-
+            dev=mux,
+            DAQ_update_interval_ms=MUX_SCANNING_INTERVAL_MS,
+            DAQ_postprocess_MUX_scan_function=DAQ_postprocess_MUX_scan_function)
     mux_pyqt.set_table_readings_format("%.5e")
-
-    # Add variables for logging
-    mux_pyqt.mutex_log = QtCore.QMutex()
-    mux_pyqt.is_recording = False
-    mux_pyqt.startup_recording = False
-    mux_pyqt.closing_recording = False
+    mux_pyqt.qgrp.setFixedWidth(420)
 
     # Create window
     window = MainWindow()
@@ -489,37 +451,36 @@ if __name__ == '__main__':
                 checked=True)
         window.grid_show_curves.addWidget(window.chkbs_show_curves[i], i, 0)
 
-    window.pbtn_show_all_curves = QtWid.QPushButton("toggle", maximumWidth=70)
-    window.pbtn_show_all_curves.clicked.connect(process_pbtn_show_all_curves)
+    window.qpbt_show_all_curves = QtWid.QPushButton("toggle", maximumWidth=70)
+    window.qpbt_show_all_curves.clicked.connect(process_qpbt_show_all_curves)
+    window.grid_show_curves.addWidget(window.qpbt_show_all_curves,
+                                      N_channels, 0)
 
-    window.grid_show_curves.addWidget(window.pbtn_show_all_curves, N_channels, 0)
+    # --------------------------------------------------------------------------
+    #   File logger
+    # --------------------------------------------------------------------------
+
+    file_logger = FileLogger()
+    file_logger.signal_set_recording_text.connect(set_text_qpbt_record)
 
     # --------------------------------------------------------------------------
     #   Start threads
     # --------------------------------------------------------------------------
 
-    if mux.is_alive:
-        mux_pyqt.worker_state.external_function_to_run_in_update = (
-                lambda: mux_process())
-        mux_pyqt.thread_state.start()
-        mux_pyqt.thread_send.start()
-
-        mux_pyqt.thread_state.setPriority(QtCore.QThread.TimeCriticalPriority)
-
-    mux_pyqt.grpb.setFixedWidth(420)
+    mux_pyqt.start_thread_worker_DAQ(QtCore.QThread.TimeCriticalPriority)
+    mux_pyqt.start_thread_worker_send()
 
     # --------------------------------------------------------------------------
     #   Connect remaining signals from GUI
     # --------------------------------------------------------------------------
 
-    window.pbtn_history_1.clicked.connect(process_pbtn_history_1)
-    window.pbtn_history_2.clicked.connect(process_pbtn_history_2)
-    window.pbtn_history_3.clicked.connect(process_pbtn_history_3)
-    window.pbtn_history_4.clicked.connect(process_pbtn_history_4)
-    window.pbtn_history_5.clicked.connect(process_pbtn_history_5)
-    window.pbtn_history_6.clicked.connect(process_pbtn_history_6)
-
-    window.pbtn_record.clicked.connect(process_pbtn_record)
+    window.qpbt_history_1.clicked.connect(process_qpbt_history_1)
+    window.qpbt_history_2.clicked.connect(process_qpbt_history_2)
+    window.qpbt_history_3.clicked.connect(process_qpbt_history_3)
+    window.qpbt_history_4.clicked.connect(process_qpbt_history_4)
+    window.qpbt_history_5.clicked.connect(process_qpbt_history_5)
+    window.qpbt_history_6.clicked.connect(process_qpbt_history_6)
+    window.qpbt_record.clicked.connect(process_qpbt_record)
 
     # --------------------------------------------------------------------------
     #   Set up timers
@@ -530,11 +491,11 @@ if __name__ == '__main__':
     timer_GUI.start(UPDATE_INTERVAL_GUI)
 
     # --------------------------------------------------------------------------
-    #   Start the main GUI loop
+    #   Start the main GUI event loop
     # --------------------------------------------------------------------------
 
     # Init the time axis of the strip charts
-    process_pbtn_history_3()
+    process_qpbt_history_3()
 
     window.show()
     sys.exit(app.exec_())

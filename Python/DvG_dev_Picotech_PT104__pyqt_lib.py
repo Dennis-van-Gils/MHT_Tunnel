@@ -6,7 +6,7 @@ acquisition for a Picotech PT-104 pt100/1000 temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "08-09-2018"
+__date__        = "14-09-2018"
 __version__     = "1.0.0"
 
 import numpy as np
@@ -14,8 +14,10 @@ import numpy as np
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 
-from DvG_PyQt_controls import SS_GROUP
+from DvG_pyqt_controls import SS_GROUP
+
 import DvG_dev_Picotech_PT104__fun_UDP as pt104_functions
+import DvG_dev_Base__pyqt_lib          as Dev_Base_pyqt_lib
 
 # Special characters
 CHAR_DEG_C = chr(176) + 'C'
@@ -27,7 +29,7 @@ DEBUG_worker_DAQ  = False
 #   PT104_pyqt
 # ------------------------------------------------------------------------------
 
-class PT104_pyqt(QtCore.QObject):
+class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """Manages multithreaded communication and periodical data acquisition for
     a Picotech PT-104 pt100/1000 temperature logger referred to as the 'device'.
 
@@ -42,7 +44,7 @@ class PT104_pyqt(QtCore.QObject):
         - Worker_DAQ:
             Periodically acquires data from the device.
 
-    (*): See 'DvG_dev_Base__PyQt_lib.py' for details.
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
 
     Args:
         dev:
@@ -52,25 +54,20 @@ class PT104_pyqt(QtCore.QObject):
         (*) DAQ_critical_not_alive_count
         (*) DAQ_timer_type
 
-    Class instances:
-        (*) worker_DAQ
-
     Main methods:
         (*) start_thread_worker_DAQ
         (*) close_all_threads()
+
+    Inner-class instances:
+        (*) worker_DAQ
 
     Main GUI objects:
         qgrp (PyQt5.QtWidgets.QGroupBox)
 
     Signals:
-        (*) worker_DAQ.signal_DAQ_updated()
-        (*) worker_DAQ.signal_connection_lost()
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
     """
-    from DvG_dev_Base__PyQt_lib import (Worker_DAQ,
-                                        create_thread_worker_DAQ,
-                                        start_thread_worker_DAQ,
-                                        close_all_threads)
-
     def __init__(self,
                  dev: pt104_functions.PT104,
                  DAQ_update_interval_ms=500,
@@ -79,23 +76,18 @@ class PT104_pyqt(QtCore.QObject):
                  parent=None):
         super(PT104_pyqt, self).__init__(parent=parent)
 
-        self.dev = dev
-        self.dev.mutex = QtCore.QMutex()
+        self.attach_device(dev)
 
-        self.worker_DAQ = self.Worker_DAQ(
-                dev,
-                DAQ_update_interval_ms,
-                self.DAQ_update,
-                DAQ_critical_not_alive_count,
-                DAQ_timer_type,
-                DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DEBUG=DEBUG_worker_DAQ)
 
         self.create_GUI()
-        self.worker_DAQ.signal_DAQ_updated.connect(self.update_GUI)
+        self.signal_DAQ_updated.connect(self.update_GUI)
         if not self.dev.is_alive:
             self.update_GUI()  # Correctly reflect an offline device
-
-        self.create_thread_worker_DAQ()
 
     # --------------------------------------------------------------------------
     #   DAQ_update
@@ -161,7 +153,7 @@ class PT104_pyqt(QtCore.QObject):
             self.qled_T_ch2.setText("%.3f" % self.dev.state.ch2_T)
             self.qled_T_ch3.setText("%.3f" % self.dev.state.ch3_T)
             self.qled_T_ch4.setText("%.3f" % self.dev.state.ch4_T)
-            self.qlbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.qlbl_update_counter.setText("%s" % self.DAQ_update_counter)
         else:
             self.qgrp.setEnabled(False)
             self.qlbl_offline.setVisible(True)
