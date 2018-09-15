@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Dennis van Gils
-04-09-2018
+15-09-2018
 """
 
 import os
@@ -16,7 +16,7 @@ from PyQt5 import QtWidgets as QtWid
 from PyQt5.QtCore import QDateTime
 
 import MHT_tunnel_constants as C
-import MHT_tunnel_GUI_v1p1  as MHT_tunnel_GUI
+import MHT_tunnel_GUI_v1p2  as MHT_tunnel_GUI
 
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
 from DvG_pyqt_FileLogger import FileLogger

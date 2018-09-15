@@ -9,7 +9,7 @@ can be properly implemented with mutex.lock() and mutex.unlock(). Signals that
 target only other GUI elements can be connected here.
 
 Dennis van Gils
-20-06-2018
+15-09-2018
 """
 
 from PyQt5 import QtCore, QtGui
