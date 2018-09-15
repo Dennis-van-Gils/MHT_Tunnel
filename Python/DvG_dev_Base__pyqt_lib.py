@@ -38,13 +38,17 @@ MAIN CONTENTS:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
-__date__        = "14-09-2018"
-__version__     = "1.0.2"
+__date__        = "15-09-2018"
+__version__     = "1.0.3"
 
 import queue
 import numpy as np
 from PyQt5 import QtCore
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
+
+# Enumeration
+[DAQ_TRIGGER__INTERNAL_TIMER,
+ DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL] = range(2)
 
 # Short-hand alias for DEBUG information
 def curThreadName(): return QtCore.QThread.currentThread().objectName()
@@ -283,6 +287,10 @@ class Dev_Base_pyqt(QtCore.QObject):
 
     def close_thread_worker_DAQ(self):
         if self.thread_DAQ is not None:
+            if (self.worker_DAQ.trigger_by ==
+                DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL):
+                self.worker_DAQ.stop()
+                self.worker_DAQ.qwc.wakeAll()
             self.thread_DAQ.quit()
             print("Closing thread %s " %
                   "{:.<16}".format(self.thread_DAQ.objectName()), end='')
@@ -375,6 +383,9 @@ class Dev_Base_pyqt(QtCore.QObject):
                 it to PyQt5.QtCore.Qt.PreciseTimer with ~1 ms granularity, but
                 it is resource heavy. Use sparingly.
 
+            DAQ_trigger_by (optional, default=DAQ_TRIGGER__INTERNAL_TIMER):
+                TO DO: write description
+
             DEBUG (bool, optional, default=False):
                 Show debug info in terminal? Warning: Slow! Do not leave on
                 unintentionally.
@@ -384,6 +395,7 @@ class Dev_Base_pyqt(QtCore.QObject):
                      DAQ_function_to_run_each_update=None,
                      DAQ_critical_not_alive_count=1,
                      DAQ_timer_type=QtCore.Qt.CoarseTimer,
+                     DAQ_trigger_by=DAQ_TRIGGER__INTERNAL_TIMER,
                      DEBUG=False):
             super().__init__(None)
             self.DEBUG = DEBUG
@@ -394,6 +406,12 @@ class Dev_Base_pyqt(QtCore.QObject):
             self.function_to_run_each_update = DAQ_function_to_run_each_update
             self.critical_not_alive_count = DAQ_critical_not_alive_count
             self.timer_type = DAQ_timer_type
+            self.trigger_by = DAQ_trigger_by
+
+            if self.trigger_by == DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL:
+                self.qwc = QtCore.QWaitCondition()
+                self.mutex_wait = QtCore.QMutex()
+                self.running = True
 
             self.calc_DAQ_rate_every_N_iter = round(1e3/self.update_interval_ms)
             self.prev_tick_DAQ_update = 0
@@ -409,11 +427,37 @@ class Dev_Base_pyqt(QtCore.QObject):
                 dprint("Worker_DAQ  %s run : thread %s" %
                        (self.dev.name, curThreadName()), self.DEBUG_color)
 
-            self.timer = QtCore.QTimer()
-            self.timer.setInterval(self.update_interval_ms)
-            self.timer.timeout.connect(self.update)
-            self.timer.setTimerType(self.timer_type)
-            self.timer.start()
+            if self.trigger_by == DAQ_TRIGGER__INTERNAL_TIMER:
+                self.timer = QtCore.QTimer()
+                self.timer.setInterval(self.update_interval_ms)
+                self.timer.timeout.connect(self.update)
+                self.timer.setTimerType(self.timer_type)
+                self.timer.start()
+            elif self.trigger_by == DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL:
+                while self.running:
+                    locker_wait = QtCore.QMutexLocker(self.mutex_wait)
+
+                    if self.DEBUG:
+                        dprint("Worker_DAQ  %s: waiting for trigger" %
+                               self.dev.name, self.DEBUG_color)
+                    self.qwc.wait(self.mutex_wait)
+                    if self.DEBUG:
+                        dprint("Worker_DAQ  %s: trigger received" %
+                               self.dev.name, self.DEBUG_color)
+
+                    self.update()
+
+                    locker_wait.unlock()
+
+                if self.DEBUG:
+                    dprint("Worker_DAQ  %s: done running" % self.dev.name,
+                           self.DEBUG_color)
+
+        @QtCore.pyqtSlot()
+        def stop(self):
+            """Only useful with DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL
+            """
+            self.running = False
 
         @QtCore.pyqtSlot()
         def update(self):
@@ -469,7 +513,7 @@ class Dev_Base_pyqt(QtCore.QObject):
 
             locker.unlock()
 
-            if self.DEBUG:
+            if self.DEBUG and self.trigger_by == DAQ_TRIGGER__INTERNAL_TIMER:
                 dprint("Worker_DAQ  %s: unlocked" % self.dev.name,
                        self.DEBUG_color)
 
@@ -560,9 +604,9 @@ class Dev_Base_pyqt(QtCore.QObject):
             self.dev = self.outer.dev
             self.alt_process_jobs_function = alt_process_jobs_function
 
-            self.running = True
-            self.mutex = QtCore.QMutex()
             self.qwc = QtCore.QWaitCondition()
+            self.mutex_wait = QtCore.QMutex()
+            self.running = True
 
             # Use a 'sentinel' value to signal the start and end of the queue
             # to ensure proper multithreaded operation.
@@ -581,12 +625,12 @@ class Dev_Base_pyqt(QtCore.QObject):
                        (self.dev.name, curThreadName()), self.DEBUG_color)
 
             while self.running:
-                locker_worker = QtCore.QMutexLocker(self.mutex)
+                locker_wait = QtCore.QMutexLocker(self.mutex_wait)
 
                 if self.DEBUG:
                     dprint("Worker_send %s: waiting for trigger" %
                            self.dev.name, self.DEBUG_color)
-                self.qwc.wait(self.mutex)
+                self.qwc.wait(self.mutex_wait)
                 if self.DEBUG:
                     dprint("Worker_send %s: trigger received" %
                            self.dev.name, self.DEBUG_color)
@@ -627,7 +671,7 @@ class Dev_Base_pyqt(QtCore.QObject):
                     # Put sentinel back in
                     self.queue.put(self.sentinel)
 
-                locker_worker.unlock()
+                locker_wait.unlock()
 
             if self.DEBUG:
                 dprint("Worker_send %s: done running" % self.dev.name,
