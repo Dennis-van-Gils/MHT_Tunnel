@@ -10,7 +10,6 @@ import sys
 import psutil
 import visa
 import numpy as np
-import time
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
@@ -967,15 +966,13 @@ def _(): pass # Spyder IDE outline divider
 
 @QtCore.pyqtSlot()
 def soft_reset():
-    # First make sure to process all pending events
-    app.processEvents()
-
     # Reset Arduinos to safe initial state
+    app.processEvents()
     ards_pyqt.send(ard1, "soft_reset")
     ards_pyqt.send(ard2, "soft_reset")
+    app.processEvents()
 
     # Reset GUI elements
-    time.sleep(0.1) # Give time to Arduinos to have processed the reset
     window.set_pump_speed_pct.setText("0.0")
     window.set_pump_speed_mA.setText("4.00")
     window.set_flow_speed_cms.setText("0.00")
@@ -1056,7 +1053,6 @@ def about_to_quit():
     print("About to quit")
     stop_running()
 
-    # Stop timers
     print("Stopping timers.................", end='')
     timer_charts.stop()
     timer_psus.stop()
@@ -1066,10 +1062,10 @@ def about_to_quit():
     #   Close peripheral device threads
     # -----------------------------------
 
+    chiller_pyqt.close_all_threads()    # ThermoFlex chiller
     mfc_pyqt.close_all_threads()        # Bronkhorst mass flow controller
     mux1_pyqt.close_all_threads()       # Keysight 3497xA
     pt104_pyqt.close_all_threads()      # Picotech PT-104
-    chiller_pyqt.close_all_threads()    # ThermoFlex chiller
 
     # Keysight power supplies
     for psu_pyqt in psus_pyqt:
@@ -1100,30 +1096,29 @@ def about_to_quit():
         trav_pyqt.close_all_threads()
 
     # ---------------------------------------
-    #   Close peripheral device connections
+    #   Close connections
     # ---------------------------------------
 
-    try: mfc.close()
-    except: pass
-    for psu in psus:
-        try: psu.close()
-        except: pass
-    try: mux1.close()
-    except: pass
-    try: pt104.close()
-    except: pass
-    try: chiller.close()
-    except: pass
-    for trav in travs:
-        try: trav.close()
-        except: pass
     try: ard1.close()
     except: pass
     try: ard2.close()
     except: pass
+    try: chiller.close()
+    except: pass
+    try: mfc.close()
+    except: pass
+    try: mux1.close()
+    except: pass
+    try: pt104.close()
+    except: pass
+    for psu in psus:
+        try: psu.close()
+        except: pass
+    for trav in travs:
+        try: trav.close()
+        except: pass
     try: rm.close()
     except: pass
-
     print("")
 
 def _(): pass # Spyder IDE outline divider
@@ -1475,6 +1470,21 @@ if __name__ == '__main__':
     trav_step_nav.step_right.connect(act_upon_signal_step_right)
 
     # -----------------------------------
+    #   Picotech PT-104
+    # -----------------------------------
+    # NOTE: There is only a 15 s time window where the PT-104 expects a new
+    # 'keep alive' signal. The next 'keep alive' will be send when the
+    # worker_DAQ thread is started.
+
+    pt104 = pt104_functions.PT104(name="PT104")
+    if pt104.connect(C.PT104_IP_ADDRESS, C.PT104_PORT):
+        pt104.begin()
+        pt104.start_conversion(C.PT104_ENA_CHANNELS, C.PT104_GAIN_CHANNELS)
+
+    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, C.UPDATE_INTERVAL_PT104)
+    pt104_pyqt.signal_DAQ_updated.connect(update_GUI_PT104)
+
+    # -----------------------------------
     #   Keysight 3497xA multiplexers
     # -----------------------------------
 
@@ -1486,21 +1496,6 @@ if __name__ == '__main__':
                     dev=mux1,
                     DAQ_update_interval_ms=C.MUX_1_SCANNING_INTERVAL,
                     DAQ_postprocess_MUX_scan_function=mux1_check_OTP_routine)
-
-    # -----------------------------------
-    #   Picotech PT-104
-    # -----------------------------------
-    # NOTE: Should be the last device to connect to, because there is only a
-    # 15 s time window where the PT-104 expects a new 'keep alive' signal.
-    # The next 'keep alive' will be send when the worker_DAQ thread is started.
-
-    pt104 = pt104_functions.PT104(name="PT104")
-    if pt104.connect(C.PT104_IP_ADDRESS, C.PT104_PORT):
-        pt104.begin()
-        pt104.start_conversion(C.PT104_ENA_CHANNELS, C.PT104_GAIN_CHANNELS)
-
-    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, C.UPDATE_INTERVAL_PT104)
-    pt104_pyqt.signal_DAQ_updated.connect(update_GUI_PT104)
 
     # --------------------------------------------------------------------------
     #   Create main window
