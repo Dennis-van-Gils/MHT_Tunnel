@@ -39,7 +39,7 @@ __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
 __date__        = "15-09-2018"
-__version__     = "1.0.3"
+__version__     = "1.0.4"
 
 import queue
 import numpy as np
@@ -413,7 +413,8 @@ class Dev_Base_pyqt(QtCore.QObject):
                 self.mutex_wait = QtCore.QMutex()
                 self.running = True
 
-            self.calc_DAQ_rate_every_N_iter = round(1e3/self.update_interval_ms)
+            self.calc_DAQ_rate_every_N_iter = max(
+                    round(1e3/self.update_interval_ms), 1)
             self.prev_tick_DAQ_update = 0
             self.prev_tick_DAQ_rate = 0
 
@@ -471,8 +472,9 @@ class Dev_Base_pyqt(QtCore.QObject):
 
             # Keep track of the obtained DAQ update interval
             now = QtCore.QDateTime.currentMSecsSinceEpoch()
-            self.outer.obtained_DAQ_update_interval_ms = (
-                    now - self.prev_tick_DAQ_update)
+            if self.outer.DAQ_update_counter > 1:
+                self.outer.obtained_DAQ_update_interval_ms = (
+                        now - self.prev_tick_DAQ_update)
             self.prev_tick_DAQ_update = now
 
             # Keep track of the obtained DAQ rate
