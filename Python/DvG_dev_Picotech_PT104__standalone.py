@@ -71,11 +71,6 @@ if __name__ == '__main__':
     ENA_channels  = [1, 1, 1, 1]
     gain_channels = [1, 1, 1, 1]
 
-    # The state of the PT104 is polled with this time interval.
-    # NOTE: Each internal PT-104 temperature update takes roughly 720 ms per
-    # channel. All enabled channels are scanned consecutively.
-    UPDATE_INTERVAL_MS = 500   # [ms]
-
     # --------------------------------------------------------------------------
     #   Connect to and set up Picotech PT-104
     # --------------------------------------------------------------------------
@@ -100,7 +95,7 @@ if __name__ == '__main__':
     #   Set up communication threads for the PT104
     # --------------------------------------------------------------------------
 
-    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104, UPDATE_INTERVAL_MS)
+    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104)
     pt104_pyqt.start_thread_worker_DAQ()
 
     # --------------------------------------------------------------------------
@@ -108,5 +103,11 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
 
     window = MainWindow()
+
+    # DEBUG: test case QWaitCondition
+    window.qbtn_debug = QtWid.QPushButton("DEBUG")
+    pt104_pyqt.grid.addWidget(window.qbtn_debug)
+    window.qbtn_debug.clicked.connect(lambda: pt104_pyqt.worker_DAQ.qwc.wakeAll())
+
     window.show()
     sys.exit(app.exec_())

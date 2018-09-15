@@ -27,7 +27,7 @@ R_MIN = 18      # [Ohm]
 R_MAX = 3760    # [Ohm]
 
 # Timeout on the socket communication
-SOCKET_TIMEOUT = 0.4 # [s]
+SOCKET_TIMEOUT = 1.0 # [s]
 
 # ------------------------------------------------------------------------------
 #   Class PT104
@@ -140,8 +140,7 @@ class PT104():
         """
         Returns: True if successful, False otherwise.
         """
-        success = False
-        success &= self.lock()
+        success = self.lock()
         success &= self.read_EEPROM()
         return success
 
@@ -166,14 +165,18 @@ class PT104():
         self._sock.sendto(msg_bytes, (self._ip_address, self._port))
 
         # Receive
-        try:
-            ans_bytes = self._sock.recv(4096)
-            success = True
-        except socket.timeout as err:
-            #print("ERROR: socket.recv() timed out in query()")
-            pass  # Stay silent and continue
-        except:
-            raise
+        for i in range(2):
+            try:
+                ans_bytes = self._sock.recv(4096)
+                success = True
+            except socket.timeout as err:
+                #print("ERROR: socket.recv() timed out in query()")
+                pass  # Stay silent and continue
+                #continue
+            except:
+                raise
+            else:
+                break
 
         return [success, ans_bytes]
 
@@ -196,6 +199,7 @@ class PT104():
 
     def keep_alive(self):
         [success, ans] = self.query(bytes([0x34]))
+        print("Keep alive: %s" % ans)
         return (success and (ans[:5] == b"Alive"))
 
     def read_EEPROM(self):
@@ -286,17 +290,19 @@ class PT104():
         try:
             ans = self._sock.recv(4096)
         except socket.timeout:
-            #print("ERROR: socket.recv() timed out @ read_4_wire_temperature()")
+            print("ERROR: socket.recv() timed out @ read_4_wire_temperature()")
             return False
         except:
             raise
-            return
+            return False
 
         ch = ans[0]/4 + 1    # Determine the channel number being reported
         reading0 = int.from_bytes(ans[1:5]  , byteorder='big')
         reading1 = int.from_bytes(ans[6:10] , byteorder='big')
         reading2 = int.from_bytes(ans[11:15], byteorder='big')
         reading3 = int.from_bytes(ans[16:20], byteorder='big')
+
+        print(ch) # DEBUG
 
         if   (ch == 1): calib = self._eeprom.ch1_calib; R_0 = self.ch1_R_0
         elif (ch == 2): calib = self._eeprom.ch2_calib; R_0 = self.ch2_R_0

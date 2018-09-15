@@ -6,7 +6,7 @@ acquisition for a Picotech PT-104 pt100/1000 temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "14-09-2018"
+__date__        = "15-09-2018"
 __version__     = "1.0.0"
 
 import numpy as np
@@ -50,7 +50,11 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         dev:
             Reference to a 'DvG_dev_Picotech_PT104__fun_UDP.PT104' instance.
 
-        (*) DAQ_update_interval_ms
+        (*) DAQ_update_interval_ms:
+            Will be ignored. The device is sending UDP packets continuously when
+            conversion has started at an interval of around 720 ms. Each packet
+            contains a reading of a single channel, scanned consecutively.
+
         (*) DAQ_critical_not_alive_count
         (*) DAQ_timer_type
 
@@ -70,19 +74,29 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """
     def __init__(self,
                  dev: pt104_functions.PT104,
-                 DAQ_update_interval_ms=500,
                  DAQ_critical_not_alive_count=np.nan,
                  DAQ_timer_type=QtCore.Qt.CoarseTimer,
                  parent=None):
         super(PT104_pyqt, self).__init__(parent=parent)
 
+        # FIXED VALUE
+        # The PT-104 device is sending UDP packets continuously when conversion
+        # has started at an interval of around 720 ms. Each packet contains a
+        # reading of a single channel, scanned consecutively.
+        # The DAQ timer is set to trigger faster to catch packets asap, but
+        # because the UDP timeout is set to 1 sec, the effective DAQ interval
+        # is slaved to the PT-104 at around 720 ms
+        DAQ_update_interval_ms = 100
+
         self.attach_device(dev)
 
-        self.create_worker_DAQ(DAQ_update_interval_ms,
-                               self.DAQ_update,
-                               DAQ_critical_not_alive_count,
-                               DAQ_timer_type,
-                               DEBUG=DEBUG_worker_DAQ)
+        self.create_worker_DAQ(
+                DAQ_update_interval_ms=DAQ_update_interval_ms,
+                DAQ_function_to_run_each_update=self.DAQ_update,
+                DAQ_critical_not_alive_count=DAQ_critical_not_alive_count,
+                DAQ_timer_type=DAQ_timer_type,
+                DAQ_trigger_by=1,  # DEBUG: test case QWaitCondition
+                DEBUG=DEBUG_worker_DAQ)
 
         self.create_GUI()
         self.signal_DAQ_updated.connect(self.update_GUI)
