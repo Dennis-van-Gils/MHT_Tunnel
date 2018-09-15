@@ -286,6 +286,7 @@ class Arduino_pyqt(QtCore.QObject):
             self.DEBUG = DEBUG
             self.DEBUG_color = ANSI.CYAN
 
+            self.dev  = self.outer.dev
             self.ard1 = self.outer.ard1
             self.ard2 = self.outer.ard2
             self.update_interval_ms = DAQ_update_interval_ms
@@ -422,6 +423,7 @@ class Arduino_pyqt(QtCore.QObject):
             self.DEBUG = DEBUG
             self.DEBUG_color = ANSI.YELLOW
 
+            self.dev  = self.outer.dev
             self.ard1 = self.outer.ard1
             self.ard2 = self.outer.ard2
 
