@@ -366,9 +366,9 @@ def update_GUI():
     if DEBUG: dprint("Updating GUI")
     window.str_cur_date_time.setText(str_cur_date + "    " + str_cur_time)
     window.update_counter.setText("%i" %
-                                  ards_pyqt.worker_DAQ.update_counter)
+                                  ards_pyqt.DAQ_update_counter)
     window.lbl_DAQ_rate.setText("DAQ: %.1f Hz" %
-                                ards_pyqt.worker_DAQ.obtained_DAQ_rate)
+                                ards_pyqt.obtained_DAQ_rate_Hz)
 
     # Show free memory
     if ard1.is_alive:
@@ -575,7 +575,7 @@ def update_charts():
     """
     # DAQ rate
     window.CH_DAQ_rate.add_new_reading(state.time,
-                                       ards_pyqt.worker_DAQ.obtained_DAQ_rate)
+                                       ards_pyqt.obtained_DAQ_rate_Hz)
     window.CH_DAQ_rate.update_curve()
 
     # Update curves TC heaters
@@ -1066,21 +1066,14 @@ def about_to_quit():
     #   Close peripheral device threads
     # -----------------------------------
 
-    # Bronkhorst mass flow controller
-    mfc_pyqt.close_all_threads()
+    mfc_pyqt.close_all_threads()        # Bronkhorst mass flow controller
+    mux1_pyqt.close_all_threads()       # Keysight 3497xA
+    pt104_pyqt.close_all_threads()      # Picotech PT-104
+    chiller_pyqt.close_all_threads()    # ThermoFlex chiller
 
     # Keysight power supplies
     for psu_pyqt in psus_pyqt:
         psu_pyqt.close_threads()
-
-    # Keysight 3497xA
-    mux1_pyqt.close_threads()
-
-    # Picotech PT-104
-    pt104_pyqt.close_all_threads()
-
-    # ThermoFlex chiller
-    chiller_pyqt.close_threads()
 
     # Compax3 traverses
     travs_are_powerless = True
@@ -1130,6 +1123,8 @@ def about_to_quit():
     except: pass
     try: rm.close()
     except: pass
+
+    print("")
 
 def _(): pass # Spyder IDE outline divider
 
@@ -1187,9 +1182,6 @@ def update_GUI_heater_control_extras():
 
 # ------------------------------------------------------------------------------
 #   Mux 1 over-temperature (OTP) check routine
-#   This function should be 'injected' into the 'update' method of the
-#   Worker_state instance. This is done by assigning this function to
-#   [Worker_state.external_function_to_run_in_update].
 #   NOTE: no GUI changes are allowed in this function.
 # ------------------------------------------------------------------------------
 
@@ -1201,7 +1193,7 @@ def mux1_check_OTP_routine():
         return
 
     all_temps_okay = True
-    if mux1_pyqt.worker_state.ENA_periodic_scanning:
+    if mux1_pyqt.is_MUX_scanning:
         readings = mux1.state.readings
 
         for i in range(C.N_HEATER_TC):
@@ -1370,8 +1362,8 @@ if __name__ == '__main__':
                                               ard2,
                                               C.UPDATE_INTERVAL_ARDUINOS,
                                               my_Arduino_DAQ_update)
-    ards_pyqt.worker_DAQ.signal_DAQ_updated.connect(update_GUI)
-    ards_pyqt.worker_DAQ.signal_connection_lost.connect(notify_connection_lost)
+    ards_pyqt.signal_DAQ_updated.connect(update_GUI)
+    ards_pyqt.signal_connection_lost.connect(notify_connection_lost)
 
     # --------------------------------------------------------------------------
     #   Connect to peripheral devices
@@ -1490,7 +1482,10 @@ if __name__ == '__main__':
     if mux1.connect(rm):
         mux1.begin(C.MUX_1_SCPI_COMMANDS)
 
-    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(mux1, C.MUX_1_SCANNING_INTERVAL)
+    mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
+                    dev=mux1,
+                    DAQ_update_interval_ms=C.MUX_1_SCANNING_INTERVAL,
+                    DAQ_postprocess_MUX_scan_function=mux1_check_OTP_routine)
 
     # -----------------------------------
     #   Picotech PT-104
@@ -1576,8 +1571,8 @@ if __name__ == '__main__':
 
     vbox = QtWid.QVBoxLayout()
     vbox.addWidget(window.grpb_trav_img)
-    vbox.addWidget(trav_step_nav.qgrp)
-    vbox.setAlignment(trav_step_nav.qgrp, QtCore.Qt.AlignLeft)
+    vbox.addWidget(trav_step_nav.grpb)
+    vbox.setAlignment(trav_step_nav.grpb, QtCore.Qt.AlignLeft)
     vbox.addStretch(1)
 
     hbox = QtWid.QHBoxLayout()
@@ -1622,16 +1617,12 @@ if __name__ == '__main__':
             psu_pyqt.thread_send.start()
 
     # Keysight 3497xA
-    if mux1.is_alive:
-        mux1_pyqt.worker_state.external_function_to_run_in_update = (
-                lambda: mux1_check_OTP_routine())
-        mux1_pyqt.thread_state.start()
-        mux1_pyqt.thread_send.start()
+    mux1_pyqt.start_thread_worker_DAQ()
+    mux1_pyqt.start_thread_worker_send()
 
     # ThermoFlex chiller
-    if chiller.is_alive:
-        chiller_pyqt.thread_state.start()
-        chiller_pyqt.thread_send.start()
+    chiller_pyqt.start_thread_worker_DAQ()
+    chiller_pyqt.start_thread_worker_send()
 
     # Compax3 traverse controllers
     trav_horz_pyqt.start_thread_worker_DAQ()
