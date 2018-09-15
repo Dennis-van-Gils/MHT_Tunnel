@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Dennis van Gils
-20-04-2018
 """
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "15-09-2018"
+__version__     = "1.0.0"
 
 import socket
 import numpy as np
@@ -27,7 +30,11 @@ R_MIN = 18      # [Ohm]
 R_MAX = 3760    # [Ohm]
 
 # Timeout on the socket communication
-SOCKET_TIMEOUT = 1.0 # [s]
+# Keep the timeout shorter than the scan rate of ~ 720 ms otherwise the method
+# 'scan_4_wire_temperature' will break.
+SOCKET_TIMEOUT = 0.5 # 0.5 [s]
+
+DEBUG = False
 
 # ------------------------------------------------------------------------------
 #   Class PT104
@@ -145,40 +152,72 @@ class PT104():
         return success
 
     # --------------------------------------------------------------------------
-    #   query
+    #   UDP_send
     # --------------------------------------------------------------------------
 
-    def query(self, msg_bytes):
-        """Send a message over the UDP port and subsequently read the reply.
+    def UDP_send(self, msg_bytes):
+        """
+        msg_bytes (bytes): Message to be sent over the UDP port.
+        """
+        self._sock.sendto(msg_bytes, (self._ip_address, self._port))
 
-        Args:
-            msg_bytes (bytes): Message to be sent over the UDP port.
+    # --------------------------------------------------------------------------
+    #   UDP_recv
+    # --------------------------------------------------------------------------
+
+    def UDP_recv(self):
+        """Receive one UDP packet at a time when available.
 
         Returns:
-            success (bool): True if successful, False otherwise.
-            ans_str (str): Reply received from the device. None if unsuccessful.
+            success (bool):
+                True if a packet was received successfully, False otherwise.
+
+            ans_bytes:
+                UDP packet received from the device. None if unsuccessful.
         """
         success = False
         ans_bytes = None
 
-        # Send
-        self._sock.sendto(msg_bytes, (self._ip_address, self._port))
+        try:
+            ans_bytes = self._sock.recv(4096)
+            success = True
+        except socket.timeout as err:
+            #print("ERROR: socket.recv() timed out in query()")
+            pass  # Stay silent and continue
+        except:
+            raise
 
-        # Receive
-        for i in range(2):
-            try:
-                ans_bytes = self._sock.recv(4096)
-                success = True
-            except socket.timeout as err:
-                #print("ERROR: socket.recv() timed out in query()")
-                pass  # Stay silent and continue
-                #continue
-            except:
-                raise
-            else:
-                break
+        return (success, ans_bytes)
 
-        return [success, ans_bytes]
+    # --------------------------------------------------------------------------
+    #   UDP_query_and_check
+    # --------------------------------------------------------------------------
+
+    def UDP_query_and_check(self, msg_bytes, check_ans_bytes):
+        """
+        Args:
+            msg_bytes (bytes):
+                Message to be sent over the UDP port.
+
+        Returns:
+            success (bool):
+                True if successful, False otherwise.
+            ans_bytes (bytes):
+                Reply received from the device. None if unsuccessful.
+        """
+        self.UDP_send(msg_bytes)
+
+        # Try up to 3 times at maximum to receive the respective response
+        # UDP packet belonging to above sent UDP packet.
+        for i in range(3):
+            [success, ans_bytes] = self.UDP_recv()
+            if success:
+                if ans_bytes[:len(check_ans_bytes)] == check_ans_bytes:
+                    return (True, ans_bytes)
+                else:
+                    print("Failed %s: received %s" % (msg_bytes, ans_bytes))
+
+        return (False, None)
 
     # --------------------------------------------------------------------------
     #   PT-104 functions
@@ -186,26 +225,31 @@ class PT104():
     # --------------------------------------------------------------------------
 
     def lock(self):
-        [success, ans] = self.query(b"lock\r")
-        return (success and (ans[:12] == b"Lock Success"))
+        success, ans = self.UDP_query_and_check(b"lock\r",
+                                                b"Lock Success")
+        return success
 
     def set_mains_rejection_50Hz(self):
-        [success, ans] = self.query(bytes([0x30, 0x00]))
-        return (success and (ans[:13] == b"Mains Changed"))
+        success, ans = self.UDP_query_and_check(bytes([0x30, 0x00]),
+                                                b"Mains Changed")
+        return success
 
     def set_mains_rejection_60Hz(self):
-        [success, ans] = self.query(bytes([0x30, 0x01]))
-        return (success and (ans[:13] == b"Mains Changed"))
+        success, ans = self.UDP_query_and_check(bytes([0x30, 0x01]),
+                                                b"Mains Changed")
+        return success
 
     def keep_alive(self):
-        [success, ans] = self.query(bytes([0x34]))
-        print("Keep alive: %s" % ans)
-        return (success and (ans[:5] == b"Alive"))
+        success, ans = self.UDP_query_and_check(bytes([0x34]),
+                                                b"Alive")
+        if not success: print("PT104 is not alive anymore.")
+        return success
 
     def read_EEPROM(self):
-        [success, ans] = self.query(bytes([0x32]))
+        success, ans = self.UDP_query_and_check(bytes([0x32]),
+                                                b"Eeprom")
 
-        if (success and (ans[:7] == b"Eeprom=")):
+        if success:
             # Parse
             ans        = ans[7:]   # Discard the first 7 bytes reading 'Eeprom='
             serial     = ans[19:29].decode("UTF8")
@@ -254,8 +298,9 @@ class PT104():
         data_byte += gain_channels[2] * 64
         data_byte += gain_channels[3] * 128
 
-        [success, ans] = self.query(bytes([0x31, data_byte]))
-        return (success and (ans[:10] == b"Converting"))
+        success, ans = self.UDP_query_and_check(bytes([0x31, data_byte]),
+                                                b"Converting")
+        return success
 
     # --------------------------------------------------------------------------
     #   report_EEPROM
@@ -273,10 +318,10 @@ class PT104():
         print("  checksum  : %s" % self._eeprom.checksum)
 
     # --------------------------------------------------------------------------
-    #   read_4_wire_temperature
+    #   scan_4_wire_temperature
     # --------------------------------------------------------------------------
 
-    def read_4_wire_temperature(self):
+    def scan_4_wire_temperature(self):
         """Reads the UDP port for any message, presumably the measurement of the
         channels reported by the PT104, after conversion has initiated.
         These readings are transformed into resistance (Ohm) using the
@@ -287,73 +332,66 @@ class PT104():
         Returns: True if successful, False otherwise.
         """
 
-        try:
-            ans = self._sock.recv(4096)
-        except socket.timeout:
-            print("ERROR: socket.recv() timed out @ read_4_wire_temperature()")
-            return False
-        except:
-            raise
-            return False
+        ## Send keep alive signal. We care about the reply later.
+        self.UDP_send(bytes([0x34]))
 
-        ch = ans[0]/4 + 1    # Determine the channel number being reported
-        reading0 = int.from_bytes(ans[1:5]  , byteorder='big')
-        reading1 = int.from_bytes(ans[6:10] , byteorder='big')
-        reading2 = int.from_bytes(ans[11:15], byteorder='big')
-        reading3 = int.from_bytes(ans[16:20], byteorder='big')
+        (success, ans) = self.UDP_recv()
+        while success:
+            if (ans[0] == 0 or ans[0] == 4 or ans[0] == 8 or ans[0] == 12):
+                # Packet containing temperature reading
 
-        print(ch) # DEBUG
+                ch = ans[0]/4 + 1    # Determine the channel number being reported
+                a_0 = int.from_bytes(ans[1:5]  , byteorder='big')
+                a_1 = int.from_bytes(ans[6:10] , byteorder='big')
+                a_2 = int.from_bytes(ans[11:15], byteorder='big')
+                a_3 = int.from_bytes(ans[16:20], byteorder='big')
 
-        if   (ch == 1): calib = self._eeprom.ch1_calib; R_0 = self.ch1_R_0
-        elif (ch == 2): calib = self._eeprom.ch2_calib; R_0 = self.ch2_R_0
-        elif (ch == 3): calib = self._eeprom.ch3_calib; R_0 = self.ch3_R_0
-        elif (ch == 4): calib = self._eeprom.ch4_calib; R_0 = self.ch4_R_0
-        else:
-            # Not the response we expected. Ignore and continue.
-            return False
+                if DEBUG:
+                    print("CH %i" % ch)
 
-        # Transform readings to resistance [Ohm]
-        if (reading1 - reading0) == 0:
-            R_T = np.nan
-        else:
-            R_T = ((calib * (reading3 - reading2)) /
-                   (reading1 - reading0) / 1e6)
+                if   (ch==1): calib = self._eeprom.ch1_calib; R_0 = self.ch1_R_0
+                elif (ch==2): calib = self._eeprom.ch2_calib; R_0 = self.ch2_R_0
+                elif (ch==3): calib = self._eeprom.ch3_calib; R_0 = self.ch3_R_0
+                elif (ch==4): calib = self._eeprom.ch4_calib; R_0 = self.ch4_R_0
 
-        """
-        # DEBUGGING:
-        if ch == 1:
-            #reading3: 503316480
-            print("%d\t%d\t%d\t%d" % (reading0, reading1, reading2, reading3))
-            print(R_T)
-        """
+                # Transform readings to resistance [Ohm]
+                if (a_1 - a_0) == 0:
+                    R_T = np.nan
+                else:
+                    R_T = ((calib * (a_3 - a_2)) / (a_1 - a_0) / 1e6)
 
-        if np.isnan(R_T):
-            # No probe is present on the channel
-            T = np.nan
-        elif (R_T < R_MIN) | (R_T > R_MAX):
-            # No probe is present on the channel
-            T = np.nan
-        else:
-            # Tranform resistance to temperature ['C]
-            T = ITS90_Ohm_to_degC(R_0, R_T)
+                if np.isnan(R_T):
+                    # No probe is present on the channel
+                    T = np.nan
+                elif (R_T < R_MIN) | (R_T > R_MAX):
+                    # No probe is present on the channel
+                    T = np.nan
+                else:
+                    # Tranform resistance to temperature ['C]
+                    T = ITS90_Ohm_to_degC(R_0, R_T)
 
-            # Significant numbers + 1
-            T = np.round(T*1e4)/1e4
+                    # Significant numbers + 1
+                    T = np.round(T*1e4)/1e4
 
-        if   (ch == 1): self.state.ch1_R = R_T; self.state.ch1_T = T
-        elif (ch == 2): self.state.ch2_R = R_T; self.state.ch2_T = T
-        elif (ch == 3): self.state.ch3_R = R_T; self.state.ch3_T = T
-        elif (ch == 4): self.state.ch4_R = R_T; self.state.ch4_T = T
+                if   (ch == 1): self.state.ch1_R = R_T; self.state.ch1_T = T
+                elif (ch == 2): self.state.ch2_R = R_T; self.state.ch2_T = T
+                elif (ch == 3): self.state.ch3_R = R_T; self.state.ch3_T = T
+                elif (ch == 4): self.state.ch4_R = R_T; self.state.ch4_T = T
 
+            elif ans[:5] == b"Alive":
+                # Packet containing alive response. Stay silent.
+                pass
+
+            else:
+                # Other packet?
+                print("  %s" % ans)
+                return False
+
+            # Receive a possible next packet from the UDP in-buffer
+            (success, ans) = self.UDP_recv()
+
+        # No more packets
         return True
-
-    # --------------------------------------------------------------------------
-    #   try_restart_conversion
-    # --------------------------------------------------------------------------
-
-    def try_restart_conversion(self):
-        if self.lock():
-             self.start_conversion(self._ENA_channels, self._gain_channels)
 
 # ------------------------------------------------------------------------------
 #   ITS90 transform functions
@@ -447,11 +485,7 @@ def print_as_hex(byte_list):
     print()
 
 # ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-#
-#   MAIN
-#
-# ------------------------------------------------------------------------------
+#   Main
 # ------------------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -483,10 +517,5 @@ if __name__ == '__main__':
     # Continuous reading as fast as possible
     print("\nT1 ['C]\tT2 ['C]")
     while 1:
-        if not pt104.keep_alive():
-            print("ERROR: Failed keep_alive()")
-            print("Trying to restart conversion")
-            pt104.try_restart_conversion()
-
-        pt104.read_4_wire_temperature()
+        pt104.scan_4_wire_temperature()
         print("\r%.3f\t%.3f" % (pt104.state.ch1_T, pt104.state.ch2_T), end='')

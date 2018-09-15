@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Update intervals in [ms]
 UPDATE_INTERVAL_ARDUINOS = 100      # 100  [ms]
-UPDATE_INTERVAL_PT104    = 500      # 500  [ms], PT100 logger
+UPDATE_INTERVAL_PT104    = 1000     # 1000 [ms], PT100 logger
 UPDATE_INTERVAL_MFC      = 200      # 200  [ms], mass flow controllers
 UPDATE_INTERVAL_CHILLER  = 1000     # 1000 [ms]
 UPDATE_INTERVAL_PSUs     = 1000     # 1000 [ms]
@@ -33,7 +33,7 @@ CALC_DAQ_RATE_EVERY_N_ITER = round(1e3/UPDATE_INTERVAL_ARDUINOS)  # Near 1 sec
 CH_SAMPLES_HEATER_TC    = 1800      # @ MUX_1_SCANNING_INTERVAL  --> 30 min
 CH_SAMPLES_HEATER_POWER = 1800
 CH_SAMPLES_FLOW_SPEED   = 18000     # @ UPDATE_INTERVAL_ARDUINOS --> 30 min
-CH_SAMPLES_PT104        = 3600      # @ UPDATE_INTERVAL_PT104    --> 30 min
+CH_SAMPLES_PT104        = 1800      # @ UPDATE_INTERVAL_PT104    --> 30 min
 CH_SAMPLES_CHILLER      = 1800      # @ UPDATE_INTERVAL_CHILLER  --> 30 min
 CH_SAMPLES_DAQ_RATE     = 1800      # @ UPDATE_INTERVAL_DAQ_RATE &
                                     # CALC_DAQ_RATE_EVERY_N_ITER --> 30 min

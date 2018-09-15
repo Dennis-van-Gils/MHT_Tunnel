@@ -51,9 +51,11 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
             Reference to a 'DvG_dev_Picotech_PT104__fun_UDP.PT104' instance.
 
         (*) DAQ_update_interval_ms:
-            Will be ignored. The device is sending UDP packets continuously when
-            conversion has started at an interval of around 720 ms. Each packet
-            contains a reading of a single channel, scanned consecutively.
+            The minimum interval is determined by the scan rate of the PT-104,
+            which takes 720 ms to update a temperature reading of a single
+            channel. This minimum interval is not stable and fluctuates. To
+            ensure a stable DAQ rate, set 'DAQ_update_interval_ms' to values
+            larger than 720 ms with some head room. 1000 ms, should work fine.
 
         (*) DAQ_critical_not_alive_count
         (*) DAQ_timer_type
@@ -74,19 +76,11 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     """
     def __init__(self,
                  dev: pt104_functions.PT104,
+                 DAQ_update_interval_ms=1000,
                  DAQ_critical_not_alive_count=np.nan,
                  DAQ_timer_type=QtCore.Qt.CoarseTimer,
                  parent=None):
         super(PT104_pyqt, self).__init__(parent=parent)
-
-        # FIXED VALUE
-        # The PT-104 device is sending UDP packets continuously when conversion
-        # has started at an interval of around 720 ms. Each packet contains a
-        # reading of a single channel, scanned consecutively.
-        # The DAQ timer is set to trigger faster to catch packets asap, but
-        # because the UDP timeout is set to 1 sec, the effective DAQ interval
-        # is slaved to the PT-104 at around 720 ms
-        DAQ_update_interval_ms = 100
 
         self.attach_device(dev)
 
@@ -95,7 +89,6 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
                 DAQ_function_to_run_each_update=self.DAQ_update,
                 DAQ_critical_not_alive_count=DAQ_critical_not_alive_count,
                 DAQ_timer_type=DAQ_timer_type,
-                DAQ_trigger_by=1,  # DEBUG: test case QWaitCondition
                 DEBUG=DEBUG_worker_DAQ)
 
         self.create_GUI()
@@ -108,10 +101,8 @@ class PT104_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     # --------------------------------------------------------------------------
 
     def DAQ_update(self):
-        success = self.dev.keep_alive()
-        success &= self.dev.read_4_wire_temperature()
-
-        return success
+        #print("Obtained interval: %.0f" % self.obtained_DAQ_update_interval_ms)
+        return self.dev.scan_4_wire_temperature()
 
     # --------------------------------------------------------------------------
     #   create_GUI

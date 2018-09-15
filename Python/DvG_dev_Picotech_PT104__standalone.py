@@ -6,7 +6,7 @@ temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "14-09-2018"
+__date__        = "15-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -95,7 +95,8 @@ if __name__ == '__main__':
     #   Set up communication threads for the PT104
     # --------------------------------------------------------------------------
 
-    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(pt104)
+    pt104_pyqt = pt104_pyqt_lib.PT104_pyqt(dev=pt104,
+                                           DAQ_update_interval_ms=1000)
     pt104_pyqt.start_thread_worker_DAQ()
 
     # --------------------------------------------------------------------------
