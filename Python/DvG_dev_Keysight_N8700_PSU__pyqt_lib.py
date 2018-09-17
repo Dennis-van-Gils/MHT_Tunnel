@@ -1,30 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Dennis van Gils
-15-09-2018
-"""
+"""PyQt5 module to provide multithreaded communication and periodical data
+acquisition for a Keysight N8700 power supply (PSU).
 
-import queue
-#import time
+TO DO: Adjust docstring to include option
+DvG_dev_Base__pyqt_lib.DAQ_trigger.EXTERNAL_WAKE_UP_CALL
+"""
+__author__      = "Dennis van Gils"
+__authoremail__ = "vangils.dennis@gmail.com"
+__url__         = ""
+__date__        = "17-09-2018"
+__version__     = "1.0.0"
 
 import numpy as np
+
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
+from PyQt5.QtCore import QDateTime
 
-import DvG_PID_controller
-from DvG_debug_functions import ANSI, dprint
 from DvG_pyqt_controls import (create_Toggle_button,
                                create_tiny_error_LED,
                                SS_TEXTBOX_ERRORS,
                                SS_GROUP)
+from DvG_debug_functions import print_fancy_traceback as pft
+
+import DvG_PID_controller
 import DvG_dev_Keysight_N8700_PSU__fun_SCPI as N8700_functions
-
-# Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
-DEBUG = False
-
-# Short-hand aliases for DEBUG information
-curThread = QtCore.QThread.currentThread
+import DvG_dev_Base__pyqt_lib               as Dev_Base_pyqt_lib
+from   DvG_dev_Base__pyqt_lib import DAQ_trigger
 
 # Monospace font
 FONT_MONOSPACE = QtGui.QFont("Monospace", 12, weight=QtGui.QFont.Bold)
@@ -34,98 +37,197 @@ FONT_MONOSPACE.setStyleHint(QtGui.QFont.TypeWriter)
 class GUI_input_fields():
     [ALL, OVP_level, V_source, I_source, P_source] = range(5)
 
+# Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
+DEBUG_worker_DAQ  = False
+DEBUG_worker_send = False
+
 # ------------------------------------------------------------------------------
 #   PSU_pyqt
 # ------------------------------------------------------------------------------
 
-class PSU_pyqt(QtWid.QWidget):
-    """Collection of PyQt related functions and objects to provide a GUI and
-    automated data transmission/acquisition for a Keysight N8700 power supply,
-    from now on referred to as the 'device'.
+class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
+    """Manages multithreaded communication and periodical data acquisition for
+    a Keysight N8700 power supply (PSU), referred to as the 'device'.
 
-    Create the block of PyQt GUI elements for the device and handle the control
-    functionality. The main QWidget object is of type QGroupBox and resides at
-    'self.grpb'. This can be added to e.g. the main window of the app.
-    !! No device I/O operations are allowed at this class level. It solely
-    focusses on handling the GUI !!
+    In addition, it also provides PyQt5 GUI objects for control of the device.
+    These can be incorporated into your application.
 
-    All device I/O operations will be offloaded to separate 'Workers', which
-    reside as nested classes inside of this class. Instances of these workers
-    should be transferred to separate threads and not be run on the same thread
-    as the GUI. This will keep the GUI and main routine responsive, without
-    blocking when communicating with the device.
-    !! No changes to the GUI are allowed inside these nested classes !!
+    All device I/O operations will be offloaded to 'workers', each running in
+    a newly created thread instead of in the main/GUI thread.
 
-    Two workers are created as class members at init of this class:
-        - worker_send
-            Maintains a queue where desired device I/O operations can be put on
-            the stack. The worker will periodically send out the operations to
-            the device as scheduled in the queue.
+        - Worker_DAQ:
+            Periodically acquires data from the device.
 
-        - worker_state
-            Periodically query the device for its state.
+        - Worker_send:
+            Maintains a thread-safe queue where desired device I/O operations
+            can be put onto, and sends the queued operations first in first out
+            (FIFO) to the device.
+
+    (*): See 'DvG_dev_Base__pyqt_lib.py' for details.
+
+    Args:
+        dev:
+            Reference to a 'DvG_dev_Bronkhorst_MFC__fun_RS232.Bronkhorst_MFC'
+            instance.
+
+        (*) DAQ_update_interval_ms
+        (*) DAQ_critical_not_alive_count
+        (*) DAQ_timer_type
+
+    Main methods:
+        (*) start_thread_worker_DAQ(...)
+        (*) start_thread_worker_send(...)
+        (*) close_all_threads()
+
+    Inner-class instances:
+        (*) worker_DAQ
+        (*) worker_send
+
+    Main data attributes:
+        (*) DAQ_update_counter
+        (*) obtained_DAQ_update_interval_ms
+        (*) obtained_DAQ_rate_Hz
+
+    Main GUI objects:
+        qgrp (PyQt5.QtWidgets.QGroupBox)
+
+    Signals:
+        (*) signal_DAQ_updated()
+        (*) signal_connection_lost()
     """
+    signal_GUI_input_field_update = QtCore.pyqtSignal(int)
 
-    def __init__(self, dev: N8700_functions.PSU, DEBUG_color=ANSI.YELLOW,
+    def __init__(self,
+                 dev: N8700_functions.PSU,
+                 DAQ_update_interval_ms=200,
+                 DAQ_critical_not_alive_count=1,
+                 DAQ_timer_type=QtCore.Qt.CoarseTimer,
+                 DAQ_trigger_by=DAQ_trigger.INTERNAL_TIMER,
                  parent=None):
         super(PSU_pyqt, self).__init__(parent=parent)
 
-        # Store reference to 'N8700_functions.PSU()' instance
-        self.dev = dev
-
-        # Create mutex for proper multithreading
-        self.dev.mutex = QtCore.QMutex()
-
-        # Terminal text color for DEBUG information
-        self.DEBUG_color = DEBUG_color
+        self.attach_device(dev)
 
         # Add PID controller on the power output
         # DvG, 25-06-2018: Kp=0.5, Ki=2, Kd=0
         self.dev.PID_power = DvG_PID_controller.PID(Kp=0.5, Ki=2, Kd=0)
 
-        # Periodically query the PSU for its state.
-        # !! To be put in a seperate thread !!
-        self.worker_state = self.Worker_state(dev, DEBUG_color)
+        self.create_worker_DAQ(DAQ_update_interval_ms,
+                               self.DAQ_update,
+                               DAQ_critical_not_alive_count,
+                               DAQ_timer_type,
+                               DAQ_trigger_by=DAQ_trigger_by,
+                               DEBUG=DEBUG_worker_DAQ)
 
-        # Maintains a queue where desired PSU I/O operations can be put on the
-        # stack. The worker will periodically send out the operations to the
-        # PSU as scheduled in the queue.
-        # !! To be put in a seperate thread !!
-        self.worker_send = self.Worker_send(dev, DEBUG_color)
+        self.create_worker_send(self.alt_process_jobs_function,
+                                DEBUG=DEBUG_worker_send)
 
-        # Create the block of GUI elements for the PSU. The main QWidget object
-        # is of type QGroupBox and resides at 'self.grpb'
         self.create_GUI()
+        self.signal_DAQ_updated.connect(self.update_GUI)
+        self.signal_GUI_input_field_update.connect(self.update_GUI_input_field)
         self.connect_signals_to_slots()
 
-        # Update GUI immediately, instead of waiting for the first refresh
         self.update_GUI()
         self.update_GUI_input_field()
 
-        # Create and set up threads
-        if self.dev.is_alive:
-            self.thread_state = QtCore.QThread()
-            self.thread_state.setObjectName("%s state" % self.dev.name)
-            self.worker_state.moveToThread(self.thread_state)
-            self.thread_state.started.connect(self.worker_state.run)
+    # --------------------------------------------------------------------------
+    #   DAQ_update
+    # --------------------------------------------------------------------------
 
-            self.thread_send = QtCore.QThread()
-            self.thread_send.setObjectName("%s send" % self.dev.name)
-            self.worker_send.moveToThread(self.thread_send)
-            self.thread_send.started.connect(self.worker_send.run)
-        else:
-            self.thread_state = None
-            self.thread_send = None
+    def DAQ_update(self):
+        self.dev.wait_for_OPC()
+        if not self.dev.query_V_meas(): return False
+
+        self.dev.wait_for_OPC()
+        if not self.dev.query_I_meas(): return False
+
+        self.dev.wait_for_OPC()
+
+        # --------------------------------------------------------------
+        #   Heater power PID
+        # --------------------------------------------------------------
+        # PID controllers work best when the process and control
+        # variables have a linear relationship.
+        # Here:
+        #   Process var: V (voltage)
+        #   Control var: P (power)
+        #   Relation   : P = R / V^2
+        #
+        # Hence, we transform P into P_star
+        #   Control var: P_star = sqrt(P)
+        #   Relation   : P_star = sqrt(R) / V
+        # When we assume R remains constant (which is not the case as
+        # the resistance is a function of the heater temperature, but
+        # the dependence is expected to be insignificant in our small
+        # temperature range of 20 to 100 deg C), we now have linearized
+        # the PID feedback relation.
+        self.dev.PID_power.set_mode((self.dev.state.ENA_output and
+                                     self.dev.state.ENA_PID),
+                                    self.dev.state.P_meas,
+                                    self.dev.state.V_source)
+
+        self.dev.PID_power.setpoint = np.sqrt(self.dev.state.P_source)
+        if self.dev.PID_power.compute(np.sqrt(self.dev.state.P_meas)):
+            # New PID output got computed -> send new voltage to PSU
+            if self.dev.PID_power.output < 1:
+                # Power supply does not regulate well below 1 V,
+                # hence clamp to 0
+                self.dev.PID_power.output = 0
+            if not self.dev.set_V_source(self.dev.PID_power.output):
+                return False
+            self.dev.wait_for_OPC()
+
+        self.dev.wait_for_OPC()
+        if not self.dev.query_ENA_OCP(): return False
+        self.dev.wait_for_OPC()
+        if not self.dev.query_status_OC(): return False
+        self.dev.wait_for_OPC()
+        if not self.dev.query_status_QC(): return False
+        self.dev.wait_for_OPC()
+        if not self.dev.query_ENA_output(): return False
+        self.dev.wait_for_OPC()
+
+        # Explicitly force the output state to off when the output got
+        # disabled on a hardware level by a triggered protection or
+        # fault.
+        if self.dev.state.ENA_output & (self.dev.state.status_QC_OV |
+                                        self.dev.state.status_QC_OC |
+                                        self.dev.state.status_QC_PF |
+                                        self.dev.state.status_QC_OT |
+                                        self.dev.state.status_QC_INH):
+            self.dev.state.ENA_output = False
+            self.dev.set_ENA_output(False)
+
+        # Check if there are errors in the device queue and retrieve all
+        # if any and append these to 'dev.state.all_errors'.
+        self.dev.query_all_errors_in_queue()
+
+        return True
 
     # --------------------------------------------------------------------------
-    #   Create QGroupBox with controls
+    #   alt_process_jobs_function
+    # --------------------------------------------------------------------------
+
+    def alt_process_jobs_function(self, func, args):
+        if (func == "signal_GUI_input_field_update"):
+            # Special instruction
+            self.signal_GUI_input_field_update.emit(*args)
+        else:
+            # Default job processing:
+            # Send I/O operation to the device
+            locker = QtCore.QMutexLocker(self.dev.mutex)
+            try:
+                func(*args)
+                self.dev.wait_for_OPC()
+            except Exception as err:
+                pft(err)
+            locker.unlock()
+
+    # --------------------------------------------------------------------------
+    #   create GUI
     # --------------------------------------------------------------------------
 
     def create_GUI(self):
-        self.grpb = QtWid.QGroupBox(self)
-        self.grpb.setTitle(self.dev.name)
-        self.grpb.setStyleSheet(SS_GROUP)
-
         # Measure
         p = {'alignment': QtCore.Qt.AlignRight,
              'font': FONT_MONOSPACE}
@@ -262,8 +364,11 @@ class PSU_pyqt(QtWid.QWidget):
         grid.setColumnStretch(3, 1)
         grid.setAlignment(QtCore.Qt.AlignTop)
         #grid.setAlignment(QtCore.Qt.AlignLeft)
+        self.grid = grid
 
-        self.grpb.setLayout(grid)
+        self.grpb = QtWid.QGroupBox("%s" % self.dev.name)
+        self.grpb.setStyleSheet(SS_GROUP)
+        self.grpb.setLayout(self.grid)
 
     # --------------------------------------------------------------------------
     #   update_GUI
@@ -325,7 +430,7 @@ class PSU_pyqt(QtWid.QWidget):
             self.errors.setReadOnly(self.dev.state.all_errors != [])
             self.errors.setText("%s" % ';'.join(self.dev.state.all_errors))
 
-            self.lbl_update_counter.setText("%s" % self.dev.update_counter)
+            self.lbl_update_counter.setText("%s" % self.DAQ_update_counter)
         else:
             self.V_meas.setText("")
             self.I_meas.setText("Offline")
@@ -370,18 +475,18 @@ class PSU_pyqt(QtWid.QWidget):
     def process_pbtn_ENA_output(self):
         if self.pbtn_ENA_output.isChecked():
             # Clear output protection, if triggered and turn on output
-            self.worker_send.queue.put(
-                    (self.dev.clear_output_protection_and_turn_on,))
+            self.worker_send.queued_instruction(
+                    self.dev.clear_output_protection_and_turn_on)
         else:
             # Turn off output
-            self.worker_send.queue.put((self.dev.turn_off,))
+            self.worker_send.queued_instruction(self.dev.turn_off)
 
     def process_pbtn_ENA_PID(self):
         self.dev.state.ENA_PID = self.pbtn_ENA_PID.isChecked()
 
     def process_pbtn_ENA_OCP(self):
-        self.worker_send.queue.put((self.dev.set_ENA_OCP,
-                                    self.pbtn_ENA_OCP.isChecked()))
+        self.worker_send.queued_instruction(self.dev.set_ENA_OCP,
+                                            self.pbtn_ENA_OCP.isChecked())
 
     def process_pbtn_ackn_errors(self):
         # Lock the dev mutex because string operations are not atomic
@@ -389,6 +494,7 @@ class PSU_pyqt(QtWid.QWidget):
         self.dev.state.all_errors = []
         self.errors.setText('')
         self.errors.setReadOnly(False)   # To change back to regular colors
+        locker.unlock()
 
     def process_pbtn_reinit(self):
         str_msg = ("Are you sure you want reinitialize the power supply?")
@@ -399,9 +505,10 @@ class PSU_pyqt(QtWid.QWidget):
 
         if reply == QtWid.QMessageBox.Yes:
             self.dev.read_config_file()
-            self.worker_send.queue.put((self.dev.reinitialize,))
-            self.worker_send.queue.put(("signal_GUI_input_field_update",
-                                        GUI_input_fields.ALL))
+            self.worker_send.add_to_queue(self.dev.reinitialize)
+            self.worker_send.add_to_queue("signal_GUI_input_field_update",
+                                          GUI_input_fields.ALL)
+            self.worker_send.process_queue()
 
             self.dev.state.ENA_PID = False
 
@@ -442,10 +549,11 @@ class PSU_pyqt(QtWid.QWidget):
 
         if (voltage < 0): voltage = 0
 
-        self.worker_send.queue.put((self.dev.set_V_source, voltage))
-        self.worker_send.queue.put((self.dev.query_V_source,))
-        self.worker_send.queue.put(("signal_GUI_input_field_update",
-                                    GUI_input_fields.V_source))
+        self.worker_send.add_to_queue(self.dev.set_V_source, voltage)
+        self.worker_send.add_to_queue(self.dev.query_V_source)
+        self.worker_send.add_to_queue("signal_GUI_input_field_update",
+                                      GUI_input_fields.V_source)
+        self.worker_send.process_queue()
 
     def send_I_source_from_textbox(self):
         try:
@@ -457,10 +565,11 @@ class PSU_pyqt(QtWid.QWidget):
 
         if (current < 0): current = 0
 
-        self.worker_send.queue.put((self.dev.set_I_source, current))
-        self.worker_send.queue.put((self.dev.query_I_source,))
-        self.worker_send.queue.put(("signal_GUI_input_field_update",
-                                    GUI_input_fields.I_source))
+        self.worker_send.add_to_queue(self.dev.set_I_source, current)
+        self.worker_send.add_to_queue(self.dev.query_I_source)
+        self.worker_send.add_to_queue("signal_GUI_input_field_update",
+                                      GUI_input_fields.I_source)
+        self.worker_send.process_queue()
 
     def set_P_source_from_textbox(self):
         try:
@@ -482,10 +591,11 @@ class PSU_pyqt(QtWid.QWidget):
         except:
             raise()
 
-        self.worker_send.queue.put((self.dev.set_OVP_level, OVP_level))
-        self.worker_send.queue.put((self.dev.query_OVP_level,))
-        self.worker_send.queue.put(("signal_GUI_input_field_update",
-                                    GUI_input_fields.OVP_level))
+        self.worker_send.add_to_queue(self.dev.set_OVP_level, OVP_level)
+        self.worker_send.add_to_queue(self.dev.query_OVP_level)
+        self.worker_send.add_to_queue("signal_GUI_input_field_update",
+                                      GUI_input_fields.OVP_level)
+        self.worker_send.process_queue()
 
     # --------------------------------------------------------------------------
     #   connect_signals_to_slots
@@ -504,256 +614,3 @@ class PSU_pyqt(QtWid.QWidget):
         self.I_source.editingFinished.connect(self.send_I_source_from_textbox)
         self.P_source.editingFinished.connect(self.set_P_source_from_textbox)
         self.OVP_level.editingFinished.connect(self.send_OVP_level_from_textbox)
-
-        self.worker_state.signal_GUI_update.connect(self.update_GUI)
-        self.worker_send.signal_GUI_input_field_update.connect(
-                self.update_GUI_input_field)
-
-    # --------------------------------------------------------------------------
-    #   Worker_send
-    # --------------------------------------------------------------------------
-
-    class Worker_send(QtCore.QObject):
-        """No changes to the GUI are allowed inside this class!
-        """
-        signal_GUI_input_field_update = QtCore.pyqtSignal(int)
-
-        def __init__(self, dev: N8700_functions.PSU, DEBUG_color=ANSI.YELLOW):
-            super().__init__(None)
-
-            self.dev = dev
-            self.running = True
-
-            # Put a 'sentinel' value in the queue to signal the end. This way we
-            # can prevent a Queue.Empty exception being thrown later on when we
-            # will read the queue till the end.
-            self.sentinel = None
-            self.queue = queue.Queue()
-            self.queue.put(self.sentinel)
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                dprint("Worker_send  %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_send  %s run : thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-            while self.running:
-                #if DEBUG:
-                #    dprint("Worker_send  %s queued: %s" %
-                #           (self.dev.name, self.queue.qsize() - 1),
-                #           self.DEBUG_color)
-
-                # Process all jobs until the queue is empty
-                for job in iter(self.queue.get_nowait, self.sentinel):
-                    func = job[0]
-                    args = job[1:]
-
-                    if (func == "signal_GUI_input_field_update"):
-                        # Special instruction
-                        if DEBUG:
-                            dprint("Worker_send  %s: %s %s" %
-                                   (self.dev.name, func, args),
-                                   self.DEBUG_color)
-                        self.signal_GUI_input_field_update.emit(*args)
-                    else:
-                        # Send I/O operation to the PSU device
-                        if DEBUG:
-                            dprint("Worker_send  %s: %s %s" %
-                                   (self.dev.name, func.__name__, args),
-                                   self.DEBUG_color)
-                        locker = QtCore.QMutexLocker(self.dev.mutex)
-                        func(*args)
-                        self.dev.wait_for_OPC()
-                        locker.unlock()
-                self.queue.put(self.sentinel)  # Put sentinel back in
-
-                # Slow down thread
-                QtCore.QThread.msleep(50)
-
-            if DEBUG:
-                dprint("Worker_send  %s: done running" % self.dev.name,
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def stop(self):
-            self.running = False
-
-    # --------------------------------------------------------------------------
-    #   Worker_state
-    # --------------------------------------------------------------------------
-
-    class Worker_state(QtCore.QObject):
-        """This Worker will read the status and readings of the PSU whenever the
-        thread is woken up from sleep by calling 'self.qwc.wakeAll()'.
-        No changes to the GUI are allowed inside this class!
-        """
-        signal_GUI_update = QtCore.pyqtSignal()
-        #connection_lost = QtCore.pyqtSignal()
-
-        def __init__(self, dev: N8700_functions.PSU, DEBUG_color=ANSI.YELLOW):
-            super().__init__(None)
-
-            self.dev = dev
-            self.dev.update_counter = 0
-            self.qwc = QtCore.QWaitCondition()
-            self.mutex_wait = QtCore.QMutex()
-            self.running = True
-
-            # Terminal text color for DEBUG information
-            self.DEBUG_color = DEBUG_color
-
-            if DEBUG:
-                dprint("Worker_state %s init: thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def run(self):
-            if DEBUG:
-                dprint("Worker_state %s run : thread %s" %
-                       (self.dev.name, curThread().objectName()),
-                       self.DEBUG_color)
-
-            while self.running:
-                locker_wait = QtCore.QMutexLocker(self.mutex_wait)
-
-                if DEBUG:
-                    dprint("Worker_state %s: waiting for trigger" %
-                           self.dev.name, self.DEBUG_color)
-
-                self.qwc.wait(self.mutex_wait)
-                self.dev.update_counter += 1
-
-                if DEBUG:
-                    dprint("Worker_state %s: iter %i" %
-                           (self.dev.name, self.dev.update_counter),
-                           self.DEBUG_color)
-
-                #tick = time.time()
-
-                locker_dev = QtCore.QMutexLocker(self.dev.mutex)
-
-                #locker_dev.unlock(); locker_dev.unlock()
-                self.dev.wait_for_OPC()
-                self.dev.query_V_meas()
-
-                #locker_dev.unlock(); locker_dev.relock()
-                self.dev.wait_for_OPC()
-                self.dev.query_I_meas()
-
-                self.dev.wait_for_OPC()
-
-                # --------------------------------------------------------------
-                #   Heater power PID
-                # --------------------------------------------------------------
-                # PID controllers work best when the process and control
-                # variables have a linear relationship.
-                # Here:
-                #   Process var: V (voltage)
-                #   Control var: P (power)
-                #   Relation   : P = R / V^2
-                #
-                # Hence, we transform P into P_star
-                #   Control var: P_star = sqrt(P)
-                #   Relation   : P_star = sqrt(R) / V
-                # When we assume R remains constant (which is not the case as
-                # the resistance is a function of the heater temperature, but
-                # the dependence is expected to be insignificant in our small
-                # temperature range of 20 to 100 deg C), we now have linearized
-                # the PID feedback relation.
-
-                self.dev.PID_power.set_mode((self.dev.state.ENA_output and
-                                             self.dev.state.ENA_PID),
-                                            self.dev.state.P_meas,
-                                            self.dev.state.V_source)
-
-                self.dev.PID_power.setpoint = np.sqrt(self.dev.state.P_source)
-                if self.dev.PID_power.compute(np.sqrt(self.dev.state.P_meas)):
-                    # New PID output got computed -> send new voltage to PSU
-                    if self.dev.PID_power.output < 1:
-                        # Power supply does not regulate well below 1 V,
-                        # hence clamp to 0
-                        self.dev.PID_power.output = 0
-                    self.dev.set_V_source(self.dev.PID_power.output)
-                    self.dev.wait_for_OPC()
-
-                self.dev.wait_for_OPC(); self.dev.query_ENA_OCP()
-                self.dev.wait_for_OPC(); self.dev.query_status_OC()
-                self.dev.wait_for_OPC(); self.dev.query_status_QC()
-                self.dev.wait_for_OPC(); self.dev.query_ENA_output()
-                self.dev.wait_for_OPC()
-
-                # Explicitly force the output state to off when the output got
-                # disabled on a hardware level by a triggered protection or
-                # fault.
-                if self.dev.state.ENA_output & (self.dev.state.status_QC_OV |
-                                                self.dev.state.status_QC_OC |
-                                                self.dev.state.status_QC_PF |
-                                                self.dev.state.status_QC_OT |
-                                                self.dev.state.status_QC_INH):
-                    self.dev.state.ENA_output = False
-                    self.dev.set_ENA_output(False)
-
-                # Check if there are errors in the device queue and retrieve all
-                # if any and append these to 'dev.state.all_errors'.
-                #locker_dev.unlock(); locker_dev.relock()
-                self.dev.query_all_errors_in_queue()
-
-                locker_dev.unlock()
-                locker_wait.unlock()
-
-                # DEBUG info
-                #print("%s done in %.3f s" % (self.dev.name, time.time() - tick))
-
-                self.signal_GUI_update.emit()
-
-                # TO DO: check for connection lost
-                #self.connection_lost.emit()
-
-            if DEBUG:
-                dprint("Worker_state %s: done running" % self.dev.name,
-                       self.DEBUG_color)
-
-        @QtCore.pyqtSlot()
-        def stop(self):
-            self.running = False
-
-            # Must make sure to take 'Worker_state.run' out of a suspended
-            # state in order to have it stop correctly.
-            self.qwc.wakeAll()
-
-    # --------------------------------------------------------------------------
-    #   close_threads
-    # --------------------------------------------------------------------------
-
-    def close_threads(self):
-        # Close thread_state
-        if self.thread_state is not None:
-            thread_name = self.thread_state.objectName()
-            self.worker_state.stop()
-            self.thread_state.quit()
-            print("Closing thread %-13s: " % thread_name, end='')
-            if self.thread_state.wait(2000):
-                print("done.\n", end='')
-            else:
-                print("FAILED.\n", end='')
-
-        # Close thread_send
-        if self.thread_send is not None:
-            thread_name = self.thread_send.objectName()
-            self.worker_send.stop()
-            self.thread_send.quit()
-            print("Closing thread %-13s: " % thread_name, end='')
-            if self.thread_send.wait(2000):
-                print("done.\n", end='')
-            else:
-                print("FAILED.\n", end='')

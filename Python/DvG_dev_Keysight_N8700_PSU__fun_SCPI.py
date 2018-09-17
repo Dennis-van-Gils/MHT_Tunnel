@@ -11,7 +11,7 @@ State variables that read numpy.nan indicate that they are uninitialized or that
 the previous query resulted in a communication error.
 
 Dennis van Gils
-04-06-2018
+17-09-2018
 """
 
 import os
@@ -20,7 +20,7 @@ import visa
 import numpy as np
 from pathlib import Path
 
-from DvG_debug_functions import print_fancy_traceback
+from DvG_debug_functions import print_fancy_traceback as pft
 
 # 'No error left' reply from the PSU
 STR_NO_ERROR = "ERR 0"
@@ -272,7 +272,7 @@ class PSU():
             self.device.write(msg_str)
         except visa.VisaIOError as err:
             # Print error and struggle on
-            print_fancy_traceback(err, 3)
+            pft(err)
             return False
         except:
             raise
@@ -305,7 +305,7 @@ class PSU():
                 ans_str = self.device.query(msg_str)
             except visa.VisaIOError as err:
                 # Print error and struggle on
-                print_fancy_traceback(err, 3)
+                pft(err)
             except:
                 raise
             else:

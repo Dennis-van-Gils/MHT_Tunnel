@@ -18,9 +18,10 @@ from DvG_pyqt_controls import SS_TEXTBOX_READ_ONLY
 
 import DvG_dev_Keysight_N8700_PSU__fun_SCPI as N8700_functions
 import DvG_dev_Keysight_N8700_PSU__pyqt_lib as N8700_pyqt_lib
+from   DvG_dev_Base__pyqt_lib import DAQ_trigger
 
-# Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
-DEBUG = False
+# Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
+DEBUG = True
 
 # ------------------------------------------------------------------------------
 #   MainWindow
@@ -62,20 +63,12 @@ class MainWindow(QtWid.QWidget):
 
 def about_to_quit():
     print("About to quit")
-
-    # First make sure to process all pending events
     app.processEvents()
-
-    # Close threads
     for psu_pyqt in psus_pyqt:
-        psu_pyqt.close_threads()
-
-    # Close device connections
+        psu_pyqt.close_all_threads()
     for psu in psus:
         try: psu.close()
         except: pass
-
-    # Close VISA resource manager
     try: rm.close()
     except: pass
 
@@ -84,10 +77,9 @@ def about_to_quit():
 # ------------------------------------------------------------------------------
 
 def trigger_update_psus():
-    # Update PSU readings by waking up the 'state' threads
-    if DEBUG: dprint("worker_state: wake all", ANSI.RED)
+    if DEBUG: dprint("timer_psus: wake all DAQ")
     for psu_pyqt in psus_pyqt:
-        psu_pyqt.worker_state.qwc.wakeAll()
+        psu_pyqt.worker_DAQ.wake_up()
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
@@ -133,6 +125,7 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
     #   Create application
     # --------------------------------------------------------------------------
+    QtCore.QThread.currentThread().setObjectName('MAIN')    # For DEBUG info
 
     app = 0    # Work-around for kernel crash when using Spyder IDE
     app = QtWid.QApplication(sys.argv)
@@ -140,18 +133,34 @@ if __name__ == '__main__':
     app.setStyleSheet(SS_TEXTBOX_READ_ONLY)
     app.aboutToQuit.connect(about_to_quit)
 
-    # For DEBUG info
-    QtCore.QThread.currentThread().setObjectName('MAIN')
+    # --------------------------------------------------------------------------
+    #   Set up communication threads for the PSUs
+    # --------------------------------------------------------------------------
     DEBUG_colors = (ANSI.YELLOW, ANSI.CYAN, ANSI.GREEN)
 
-    # Create PyQt GUI interfaces and communication threads per power supply
     psus_pyqt = list()
     for i in range(len(psus)):
         psus_pyqt.append(N8700_pyqt_lib.PSU_pyqt(
-                dev=psus[i], DEBUG_color=DEBUG_colors[i]))
+                dev=psus[i],
+                DAQ_trigger_by=DAQ_trigger.EXTERNAL_WAKE_UP_CALL))
 
-    # Create window
-    window = MainWindow()
+        psus_pyqt[i].worker_DAQ.DEBUG_color  = DEBUG_colors[i]
+        psus_pyqt[i].worker_send.DEBUG_color = DEBUG_colors[i]
+
+    # DEBUG
+    psus_pyqt[0].worker_DAQ.DEBUG  = True
+    psus_pyqt[0].worker_send.DEBUG = True
+    psus_pyqt[0].worker_DAQ.DEBUG_color  = ANSI.YELLOW
+    psus_pyqt[0].worker_send.DEBUG_color = ANSI.CYAN
+
+    psus_pyqt[1].worker_DAQ.DEBUG = False
+    psus_pyqt[1].worker_send.DEBUG  = False
+    psus_pyqt[1].worker_DAQ.DEBUG_color  = ANSI.RED
+    psus_pyqt[1].worker_send.DEBUG_color = ANSI.BLUE
+
+    for psu_pyqt in psus_pyqt:
+        psu_pyqt.start_thread_worker_DAQ()
+        psu_pyqt.start_thread_worker_send()
 
     # --------------------------------------------------------------------------
     #   Set up PSU update timer
@@ -162,17 +171,9 @@ if __name__ == '__main__':
     timer_psus.start(UPDATE_INTERVAL_MS)
 
     # --------------------------------------------------------------------------
-    #   Start threads
+    #   Start the main GUI event loop
     # --------------------------------------------------------------------------
 
-    for psu_pyqt in psus_pyqt:
-        if psu_pyqt.dev.is_alive:
-            psu_pyqt.thread_state.start()
-            psu_pyqt.thread_send.start()
-
-    # --------------------------------------------------------------------------
-    #   Start the main GUI loop
-    # --------------------------------------------------------------------------
-
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())
