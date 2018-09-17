@@ -15,8 +15,8 @@ Functions:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_debug_functions"
-__date__        = "23-08-2018"
-__version__     = "1.0.0"
+__date__        = "17-09-2018"
+__version__     = "1.0.1"
 
 import os
 import sys
@@ -31,13 +31,15 @@ else:
 
 class ANSI:
     NONE   = ''
-    RED    = '\033[1;31m'
-    GREEN  = '\033[1;32m'
-    YELLOW = '\033[1;33m'
-    BLUE   = '\033[1;34m'
-    PURPLE = '\033[1;35m'
-    CYAN   = '\033[1;36m'
-    WHITE  = '\033[1;37m'
+    RESET  = '\u001b[0m'
+    BLACK  = '\u001b[30m'
+    RED    = '\u001b[1;31m'
+    GREEN  = '\u001b[1;32m'
+    YELLOW = '\u001b[1;33m'
+    BLUE   = '\u001b[1;34m'
+    PURPLE = '\u001b[1;35m'
+    CYAN   = '\u001b[1;36m'
+    WHITE  = '\u001b[1;37m'
 
 def dprint(str_msg, ANSI_color=None):
     """'Debug' print a single line to the terminal with optional ANSI color
@@ -63,14 +65,14 @@ def dprint(str_msg, ANSI_color=None):
     # >: Output line of thread 2                          (\n)
 
     if PYQT5_IS_PRESENT: locker = QtCore.QMutexLocker(dprint_mutex)
-    
+
     sys.stdout.flush()
     if ANSI_color is None:
         print("%s\n" % str_msg, end='')
     else:
-        print("%s%s%s\n" % (ANSI_color, str_msg, ANSI.WHITE), end='')
+        print("%s%s%s\n" % (ANSI_color, str_msg, ANSI.RESET), end='')
     sys.stdout.flush()
-    
+
     if PYQT5_IS_PRESENT: locker.unlock()
 
 def print_fancy_traceback(err, back=3):
@@ -103,12 +105,13 @@ def print_fancy_traceback(err, back=3):
         if (err.abbreviation == '' and err.description == ''):
             print((ANSI.RED + '%s: ' + ANSI.WHITE) % sys.exc_info()[0].__name__,
                   end='')
-            print(err)
+            print(err, end='')
+            print(ANSI.RESET)
         else:
-            print((ANSI.RED + '%s: ' + ANSI.WHITE + '%s: %s') %
+            print((ANSI.RED + '%s: ' + ANSI.WHITE + '%s: %s' + ANSI.RESET) %
                   (sys.exc_info()[0].__name__,
                    err.abbreviation,
                    err.description))
 
     elif isinstance(err, str):
-        print((ANSI.RED + 'Error: ' + ANSI.WHITE + '%s') % err)
+        print((ANSI.RED + 'Error: ' + ANSI.WHITE + '%s' + ANSI.RESET) % err)
