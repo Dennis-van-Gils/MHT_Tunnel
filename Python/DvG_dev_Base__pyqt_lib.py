@@ -20,6 +20,9 @@ MAIN CONTENTS:
 
             Inner-class instances:
                 worker_DAQ(...)
+                    Methods:
+                        wake_up(...)
+
                 worker_send(...):
                     Methods:
                         add_to_queue(...)
@@ -38,20 +41,21 @@ MAIN CONTENTS:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
-__date__        = "15-09-2018"
-__version__     = "1.0.4"
+__date__        = "17-09-2018"
+__version__     = "1.1.0"
 
+from enum import IntEnum, unique
 import queue
 import numpy as np
 from PyQt5 import QtCore
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
 
-# Enumeration
-[DAQ_TRIGGER__INTERNAL_TIMER,
- DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL] = range(2)
-
 # Short-hand alias for DEBUG information
 def curThreadName(): return QtCore.QThread.currentThread().objectName()
+
+@unique
+class DAQ_trigger(IntEnum):
+    [INTERNAL_TIMER, EXTERNAL_WAKE_UP_CALL] = range(2)
 
 # ------------------------------------------------------------------------------
 #   InnerClassDescriptor
@@ -288,7 +292,7 @@ class Dev_Base_pyqt(QtCore.QObject):
     def close_thread_worker_DAQ(self):
         if self.thread_DAQ is not None:
             if (self.worker_DAQ.trigger_by ==
-                DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL):
+                DAQ_trigger.EXTERNAL_WAKE_UP_CALL):
                 self.worker_DAQ.stop()
                 self.worker_DAQ.qwc.wakeAll()
             self.thread_DAQ.quit()
@@ -383,7 +387,7 @@ class Dev_Base_pyqt(QtCore.QObject):
                 it to PyQt5.QtCore.Qt.PreciseTimer with ~1 ms granularity, but
                 it is resource heavy. Use sparingly.
 
-            DAQ_trigger_by (optional, default=DAQ_TRIGGER__INTERNAL_TIMER):
+            DAQ_trigger_by (optional, default=DAQ_trigger.INTERNAL_TIMER):
                 TO DO: write description
 
             DEBUG (bool, optional, default=False):
@@ -395,7 +399,7 @@ class Dev_Base_pyqt(QtCore.QObject):
                      DAQ_function_to_run_each_update=None,
                      DAQ_critical_not_alive_count=1,
                      DAQ_timer_type=QtCore.Qt.CoarseTimer,
-                     DAQ_trigger_by=DAQ_TRIGGER__INTERNAL_TIMER,
+                     DAQ_trigger_by=DAQ_trigger.INTERNAL_TIMER,
                      DEBUG=False):
             super().__init__(None)
             self.DEBUG = DEBUG
@@ -408,7 +412,7 @@ class Dev_Base_pyqt(QtCore.QObject):
             self.timer_type = DAQ_timer_type
             self.trigger_by = DAQ_trigger_by
 
-            if self.trigger_by == DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL:
+            if self.trigger_by == DAQ_trigger.EXTERNAL_WAKE_UP_CALL:
                 self.qwc = QtCore.QWaitCondition()
                 self.mutex_wait = QtCore.QMutex()
                 self.running = True
@@ -428,13 +432,16 @@ class Dev_Base_pyqt(QtCore.QObject):
                 dprint("Worker_DAQ  %s run : thread %s" %
                        (self.dev.name, curThreadName()), self.DEBUG_color)
 
-            if self.trigger_by == DAQ_TRIGGER__INTERNAL_TIMER:
+            # INTERNAL TIMER
+            if self.trigger_by == DAQ_trigger.INTERNAL_TIMER:
                 self.timer = QtCore.QTimer()
                 self.timer.setInterval(self.update_interval_ms)
                 self.timer.timeout.connect(self.update)
                 self.timer.setTimerType(self.timer_type)
                 self.timer.start()
-            elif self.trigger_by == DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL:
+
+            # EXTERNAL WAKE UP
+            elif self.trigger_by == DAQ_trigger.EXTERNAL_WAKE_UP_CALL:
                 while self.running:
                     locker_wait = QtCore.QMutexLocker(self.mutex_wait)
 
@@ -456,7 +463,7 @@ class Dev_Base_pyqt(QtCore.QObject):
 
         @QtCore.pyqtSlot()
         def stop(self):
-            """Only useful with DAQ_TRIGGER__EXTERNAL_WAKE_UP_CALL
+            """Only useful with DAQ_trigger.EXTERNAL_WAKE_UP_CALL
             """
             self.running = False
 
@@ -515,11 +522,20 @@ class Dev_Base_pyqt(QtCore.QObject):
 
             locker.unlock()
 
-            if self.DEBUG and self.trigger_by == DAQ_TRIGGER__INTERNAL_TIMER:
+            if (self.DEBUG and
+                self.trigger_by == DAQ_trigger.INTERNAL_TIMER):
                 dprint("Worker_DAQ  %s: unlocked" % self.dev.name,
                        self.DEBUG_color)
 
             self.outer.signal_DAQ_updated.emit()
+
+        # ----------------------------------------------------------------------
+        #   wake_up
+        # ----------------------------------------------------------------------
+
+        def wake_up(self):
+            if self.trigger_by == DAQ_trigger.EXTERNAL_WAKE_UP_CALL:
+                self.qwc.wakeAll()
 
     # --------------------------------------------------------------------------
     #   Worker_send
