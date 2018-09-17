@@ -6,7 +6,7 @@ temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "15-09-2018"
+__date__        = "17-09-2018"
 __version__     = "1.0.0"
 
 import sys
@@ -104,11 +104,5 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
 
     window = MainWindow()
-
-    # DEBUG: test case QWaitCondition
-    window.qbtn_debug = QtWid.QPushButton("DEBUG")
-    pt104_pyqt.grid.addWidget(window.qbtn_debug)
-    window.qbtn_debug.clicked.connect(lambda: pt104_pyqt.worker_DAQ.qwc.wakeAll())
-
     window.show()
     sys.exit(app.exec_())

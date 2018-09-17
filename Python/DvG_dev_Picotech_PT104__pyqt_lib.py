@@ -6,7 +6,7 @@ acquisition for a Picotech PT-104 pt100/1000 temperature logger.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "15-09-2018"
+__date__        = "17-09-2018"
 __version__     = "1.0.0"
 
 import numpy as np
