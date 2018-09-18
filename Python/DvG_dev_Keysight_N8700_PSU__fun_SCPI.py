@@ -11,7 +11,7 @@ State variables that read numpy.nan indicate that they are uninitialized or that
 the previous query resulted in a communication error.
 
 Dennis van Gils
-17-09-2018
+18-09-2018
 """
 
 import os
@@ -350,10 +350,16 @@ class PSU():
 
         Will wait for all device operations to complete or until a timeout is
         triggered. Blocking.
+
+        Returns True when succesful, False otherwise.
         """
         # Returns an ASCII "+1" when all pending overlapped operations have been
         # completed.
-        self.query("*opc?")
+        [success, ans] = self.query("*opc?")
+        if (success and ans == "1"):
+            return True
+        else:
+            pft("Warning: *opc? timed out at device %s" % self.name)
 
     def wait_for_OPC_indefinitely(self):
         """ Poll OPC status bit for 'operation complete', used for event
