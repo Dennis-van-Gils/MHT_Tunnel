@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Dennis van Gils
-15-09-2018
+18-09-2018
 """
 
 import os
@@ -20,6 +20,7 @@ import MHT_tunnel_GUI_v1p2  as MHT_tunnel_GUI
 
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
 from DvG_pyqt_FileLogger import FileLogger
+from DvG_dev_Base__pyqt_lib import DAQ_trigger
 
 import DvG_dev_Arduino__fun_serial            as Arduino_functions
 import DvG_dev_Arduino__pyqt_lib__MHT_version as Arduino_pyqt_lib
@@ -1069,7 +1070,7 @@ def about_to_quit():
 
     # Keysight power supplies
     for psu_pyqt in psus_pyqt:
-        psu_pyqt.close_threads()
+        psu_pyqt.close_all_threads()
 
     # Compax3 traverses
     travs_are_powerless = True
@@ -1148,10 +1149,11 @@ def process_mfc_auto_open_valve():
 
 @QtCore.pyqtSlot()
 def trigger_update_psus():
-    # Trigger new PSU readings by waking up the 'state' threads
-    if DEBUG: dprint("worker_state: wake all", ANSI.RED)
+    # Trigger new PSU readings by waking up the 'DAQ' threads
+    #if DEBUG: dprint("timer_psus: wake all PSU DAQ")
+    dprint("timer_psus: wake all PSU DAQ")
     for psu_pyqt in psus_pyqt:
-        psu_pyqt.worker_state.qwc.wakeAll()
+        psu_pyqt.worker_DAQ.wake_up()
 
 # ------------------------------------------------------------------------------
 #   Keysight N8700 routines
@@ -1421,10 +1423,22 @@ if __name__ == '__main__':
             psu.begin()
 
     psus_pyqt = list()
-    DEBUG_colors = (ANSI.YELLOW, ANSI.CYAN, ANSI.GREEN)
     for i in range(len(psus)):
         psus_pyqt.append(N8700_pyqt_lib.PSU_pyqt(
-                dev=psus[i], DEBUG_color=DEBUG_colors[i]))
+                dev=psus[i],
+                DAQ_trigger_by=DAQ_trigger.EXTERNAL_WAKE_UP_CALL))
+
+    # DEBUG information
+    DEBUG2 = True
+    psus_pyqt[0].worker_DAQ.DEBUG  = DEBUG2
+    psus_pyqt[0].worker_send.DEBUG = DEBUG2
+    psus_pyqt[0].worker_DAQ.DEBUG_color  = ANSI.YELLOW
+    psus_pyqt[0].worker_send.DEBUG_color = ANSI.CYAN
+
+    psus_pyqt[1].worker_DAQ.DEBUG  = DEBUG2
+    psus_pyqt[1].worker_send.DEBUG = DEBUG2
+    psus_pyqt[1].worker_DAQ.DEBUG_color  = ANSI.GREEN
+    psus_pyqt[1].worker_send.DEBUG_color = ANSI.RED
 
     # -----------------------------------
     #   Compax3 traverse controllers
@@ -1610,11 +1624,9 @@ if __name__ == '__main__':
 
     # Keysight power supplies
     for psu_pyqt in psus_pyqt:
-        if psu_pyqt.dev.is_alive:
-            psu_pyqt.worker_state.signal_GUI_update.connect(
-                    update_GUI_heater_control_extras)
-            psu_pyqt.thread_state.start()
-            psu_pyqt.thread_send.start()
+        psu_pyqt.signal_DAQ_updated.connect(update_GUI_heater_control_extras)
+        psu_pyqt.start_thread_worker_DAQ()
+        psu_pyqt.start_thread_worker_send()
 
     # Keysight 3497xA
     mux1_pyqt.start_thread_worker_DAQ()
