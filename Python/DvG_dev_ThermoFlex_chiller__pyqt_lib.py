@@ -6,7 +6,7 @@ acquisition for a Thermo Scientific ThermoFlex recirculating chiller.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "14-09-2018"
+__date__        = "18-09-2018"
 __version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
@@ -135,12 +135,10 @@ class ThermoFlex_chiller_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         else:
             # Default job processing:
             # Send I/O operation to the device
-            locker = QtCore.QMutexLocker(self.dev.mutex)
             try:
                 func(*args)
             except Exception as err:
                 pft(err)
-            locker.unlock()
 
     # --------------------------------------------------------------------------
     #   create_GUI

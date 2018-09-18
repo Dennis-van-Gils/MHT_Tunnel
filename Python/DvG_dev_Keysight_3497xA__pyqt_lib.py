@@ -10,7 +10,7 @@ refer to this device as a multiplexer, or mux.
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "14-09-2018"
+__date__        = "18-09-2018"
 __version__     = "1.0.0"
 
 from PyQt5 import QtCore, QtGui
@@ -290,13 +290,11 @@ class K3497xA_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
 
     def alt_process_jobs_function(self, func, args):
         # Send I/O operation to the device
-        locker = QtCore.QMutexLocker(self.dev.mutex)
         try:
             func(*args)
             self.dev.wait_for_OPC()                         # Wait for OPC
         except Exception as err:
             pft(err)
-        locker.unlock()
 
     # --------------------------------------------------------------------------
     #   create_GUI

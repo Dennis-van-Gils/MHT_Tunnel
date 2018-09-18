@@ -9,14 +9,13 @@ DvG_dev_Base__pyqt_lib.DAQ_trigger.EXTERNAL_WAKE_UP_CALL
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "17-09-2018"
+__date__        = "18-09-2018"
 __version__     = "1.0.0"
 
 import numpy as np
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
-from PyQt5.QtCore import QDateTime
 
 from DvG_pyqt_controls import (create_Toggle_button,
                                create_tiny_error_LED,
@@ -135,10 +134,14 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     # --------------------------------------------------------------------------
 
     def DAQ_update(self):
+        DEBUG_local = (True if self.dev.name == "PSU 2" else False)
+
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q V_meas")
         if not self.dev.query_V_meas(): return False
 
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q I_meas")
         if not self.dev.query_I_meas(): return False
 
         self.dev.wait_for_OPC()
@@ -173,17 +176,22 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
                 # Power supply does not regulate well below 1 V,
                 # hence clamp to 0
                 self.dev.PID_power.output = 0
+            if DEBUG_local: print("set V_source")
             if not self.dev.set_V_source(self.dev.PID_power.output):
                 return False
             self.dev.wait_for_OPC()
 
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q ENA OCP")
         if not self.dev.query_ENA_OCP(): return False
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q status OC")
         if not self.dev.query_status_OC(): return False
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q status QC")
         if not self.dev.query_status_QC(): return False
         self.dev.wait_for_OPC()
+        if DEBUG_local: print("q ENA output")
         if not self.dev.query_ENA_output(): return False
         self.dev.wait_for_OPC()
 
@@ -200,6 +208,7 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
 
         # Check if there are errors in the device queue and retrieve all
         # if any and append these to 'dev.state.all_errors'.
+        if DEBUG_local: print("q all errors")
         self.dev.query_all_errors_in_queue()
 
         return True
@@ -215,13 +224,11 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         else:
             # Default job processing:
             # Send I/O operation to the device
-            locker = QtCore.QMutexLocker(self.dev.mutex)
             try:
                 func(*args)
                 self.dev.wait_for_OPC()
             except Exception as err:
                 pft(err)
-            locker.unlock()
 
     # --------------------------------------------------------------------------
     #   create GUI
