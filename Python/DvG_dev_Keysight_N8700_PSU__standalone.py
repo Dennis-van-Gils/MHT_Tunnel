@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Dennis van Gils
-15-09-2018
+18-09-2018
 """
 
 import sys
@@ -136,7 +136,6 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
     #   Set up communication threads for the PSUs
     # --------------------------------------------------------------------------
-    DEBUG_colors = (ANSI.YELLOW, ANSI.CYAN, ANSI.GREEN)
 
     psus_pyqt = list()
     for i in range(len(psus)):
@@ -144,19 +143,16 @@ if __name__ == '__main__':
                 dev=psus[i],
                 DAQ_trigger_by=DAQ_trigger.EXTERNAL_WAKE_UP_CALL))
 
-        psus_pyqt[i].worker_DAQ.DEBUG_color  = DEBUG_colors[i]
-        psus_pyqt[i].worker_send.DEBUG_color = DEBUG_colors[i]
-
-    # DEBUG
-    psus_pyqt[0].worker_DAQ.DEBUG  = True
-    psus_pyqt[0].worker_send.DEBUG = True
+    # DEBUG information
+    psus_pyqt[0].worker_DAQ.DEBUG  = DEBUG
+    psus_pyqt[0].worker_send.DEBUG = DEBUG
     psus_pyqt[0].worker_DAQ.DEBUG_color  = ANSI.YELLOW
     psus_pyqt[0].worker_send.DEBUG_color = ANSI.CYAN
 
-    psus_pyqt[1].worker_DAQ.DEBUG = False
-    psus_pyqt[1].worker_send.DEBUG  = False
-    psus_pyqt[1].worker_DAQ.DEBUG_color  = ANSI.RED
-    psus_pyqt[1].worker_send.DEBUG_color = ANSI.BLUE
+    psus_pyqt[1].worker_DAQ.DEBUG  = DEBUG
+    psus_pyqt[1].worker_send.DEBUG = DEBUG
+    psus_pyqt[1].worker_DAQ.DEBUG_color  = ANSI.GREEN
+    psus_pyqt[1].worker_send.DEBUG_color = ANSI.RED
 
     for psu_pyqt in psus_pyqt:
         psu_pyqt.start_thread_worker_DAQ()
