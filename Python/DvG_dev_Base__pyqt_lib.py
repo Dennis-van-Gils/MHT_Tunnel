@@ -41,7 +41,7 @@ MAIN CONTENTS:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
-__date__        = "17-09-2018"
+__date__        = "18-09-2018"
 __version__     = "1.1.0"
 
 from enum import IntEnum, unique
@@ -448,11 +448,8 @@ class Dev_Base_pyqt(QtCore.QObject):
                     if self.DEBUG:
                         dprint("Worker_DAQ  %s: waiting for trigger" %
                                self.dev.name, self.DEBUG_color)
-                    self.qwc.wait(self.mutex_wait)
-                    if self.DEBUG:
-                        dprint("Worker_DAQ  %s: trigger received" %
-                               self.dev.name, self.DEBUG_color)
 
+                    self.qwc.wait(self.mutex_wait)
                     self.update()
 
                     locker_wait.unlock()
@@ -469,11 +466,11 @@ class Dev_Base_pyqt(QtCore.QObject):
 
         @QtCore.pyqtSlot()
         def update(self):
-            self.outer.DAQ_update_counter += 1
             locker = QtCore.QMutexLocker(self.dev.mutex)
+            self.outer.DAQ_update_counter += 1
 
             if self.DEBUG:
-                dprint("Worker_DAQ  %s: iter %i" %
+                dprint("Worker_DAQ  %s: lock %i" %
                        (self.dev.name, self.outer.DAQ_update_counter),
                        self.DEBUG_color)
 
@@ -520,13 +517,11 @@ class Dev_Base_pyqt(QtCore.QObject):
             #   End user-supplied DAQ function
             # ----------------------------------
 
-            locker.unlock()
-
-            if (self.DEBUG and
-                self.trigger_by == DAQ_trigger.INTERNAL_TIMER):
+            if self.DEBUG:
                 dprint("Worker_DAQ  %s: unlocked" % self.dev.name,
                        self.DEBUG_color)
 
+            locker.unlock()
             self.outer.signal_DAQ_updated.emit()
 
         # ----------------------------------------------------------------------
@@ -574,15 +569,12 @@ class Dev_Base_pyqt(QtCore.QObject):
                 supply must take two arguments, where the first argument will be
                 'func' and the second argument will be 'args', which is a tuple.
                 Both 'func' and 'args' will be retrieved from the worker_send
-                queue and passed onto your own function. Don't forget to put a
-                mutex lock and unlock around any device I/O operations.
+                queue and passed onto your own function.
 
                 Example of a query operation by sending and checking for a
                 special string value of 'func':
 
                     def my_alt_process_jobs_function(func, args):
-                        locker = QtCore.QMutexLocker(self.dev.mutex)
-
                         if func == "query_id?":
                             # Query the device for its identity string
                             [success, ans_str] = self.dev.query("id?")
@@ -593,8 +585,6 @@ class Dev_Base_pyqt(QtCore.QObject):
                             # func = self.dev.write
                             # args = ("toggle LED",)
                             func(*args)
-
-                        locker.unlock()
 
             DEBUG (bool, optional, default=False):
                 Show debug info in terminal? Warning: Slow! Do not leave on
@@ -622,6 +612,7 @@ class Dev_Base_pyqt(QtCore.QObject):
             self.dev = self.outer.dev
             self.alt_process_jobs_function = alt_process_jobs_function
 
+            self.update_counter = 0
             self.qwc = QtCore.QWaitCondition()
             self.mutex_wait = QtCore.QMutex()
             self.running = True
@@ -648,10 +639,15 @@ class Dev_Base_pyqt(QtCore.QObject):
                 if self.DEBUG:
                     dprint("Worker_send %s: waiting for trigger" %
                            self.dev.name, self.DEBUG_color)
+
                 self.qwc.wait(self.mutex_wait)
+                locker = QtCore.QMutexLocker(self.dev.mutex)
+                self.update_counter += 1
+
                 if self.DEBUG:
-                    dprint("Worker_send %s: trigger received" %
-                           self.dev.name, self.DEBUG_color)
+                    dprint("Worker_send %s: lock %i" %
+                           (self.dev.name, self.update_counter),
+                           self.DEBUG_color)
 
                 """Process all jobs until the queue is empty. We must iterate 2
                 times because we use a sentinel in a FIFO queue. First iter
@@ -676,12 +672,10 @@ class Dev_Base_pyqt(QtCore.QObject):
                         if self.alt_process_jobs_function is None:
                             # Default job processing:
                             # Send I/O operation to the device
-                            locker = QtCore.QMutexLocker(self.dev.mutex)
                             try:
                                 func(*args)
                             except Exception as err:
                                 pft(err)
-                            locker.unlock()
                         else:
                             # User-supplied job processing
                             self.alt_process_jobs_function(func, args)
@@ -689,6 +683,11 @@ class Dev_Base_pyqt(QtCore.QObject):
                     # Put sentinel back in
                     self.queue.put(self.sentinel)
 
+                if self.DEBUG:
+                    dprint("Worker_send %s: unlocked" % self.dev.name,
+                           self.DEBUG_color)
+
+                locker.unlock()
                 locker_wait.unlock()
 
             if self.DEBUG:
