@@ -1150,8 +1150,7 @@ def process_mfc_auto_open_valve():
 @QtCore.pyqtSlot()
 def trigger_update_psus():
     # Trigger new PSU readings by waking up the 'DAQ' threads
-    #if DEBUG: dprint("timer_psus: wake all PSU DAQ")
-    dprint("timer_psus: wake all PSU DAQ")
+    if DEBUG: dprint("timer_psus: wake all PSU DAQ")
     for psu_pyqt in psus_pyqt:
         psu_pyqt.worker_DAQ.wake_up()
 
@@ -1426,17 +1425,18 @@ if __name__ == '__main__':
     for i in range(len(psus)):
         psus_pyqt.append(N8700_pyqt_lib.PSU_pyqt(
                 dev=psus[i],
+                DAQ_critical_not_alive_count=np.nan,
                 DAQ_trigger_by=DAQ_trigger.EXTERNAL_WAKE_UP_CALL))
 
     # DEBUG information
-    DEBUG2 = True
-    psus_pyqt[0].worker_DAQ.DEBUG  = DEBUG2
-    psus_pyqt[0].worker_send.DEBUG = DEBUG2
+    DEBUG_PSU = True
+    psus_pyqt[0].worker_DAQ.DEBUG  = DEBUG_PSU
+    psus_pyqt[0].worker_send.DEBUG = DEBUG_PSU
     psus_pyqt[0].worker_DAQ.DEBUG_color  = ANSI.YELLOW
     psus_pyqt[0].worker_send.DEBUG_color = ANSI.CYAN
 
-    psus_pyqt[1].worker_DAQ.DEBUG  = DEBUG2
-    psus_pyqt[1].worker_send.DEBUG = DEBUG2
+    psus_pyqt[1].worker_DAQ.DEBUG  = DEBUG_PSU
+    psus_pyqt[1].worker_send.DEBUG = DEBUG_PSU
     psus_pyqt[1].worker_DAQ.DEBUG_color  = ANSI.GREEN
     psus_pyqt[1].worker_send.DEBUG_color = ANSI.RED
 

@@ -9,7 +9,7 @@ DvG_dev_Base__pyqt_lib.DAQ_trigger.EXTERNAL_WAKE_UP_CALL
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = ""
-__date__        = "18-09-2018"
+__date__        = "19-09-2018"
 __version__     = "1.0.0"
 
 import numpy as np
@@ -21,7 +21,7 @@ from DvG_pyqt_controls import (create_Toggle_button,
                                create_tiny_error_LED,
                                SS_TEXTBOX_ERRORS,
                                SS_GROUP)
-from DvG_debug_functions import print_fancy_traceback as pft
+from DvG_debug_functions import dprint, print_fancy_traceback as pft
 
 import DvG_PID_controller
 import DvG_dev_Keysight_N8700_PSU__fun_SCPI as N8700_functions
@@ -35,6 +35,9 @@ FONT_MONOSPACE.setStyleHint(QtGui.QFont.TypeWriter)
 # Enumeration
 class GUI_input_fields():
     [ALL, OVP_level, V_source, I_source, P_source] = range(5)
+
+# Short-hand alias for DEBUG information
+def get_tick(): return QtCore.QDateTime.currentMSecsSinceEpoch()
 
 # Show debug info in terminal? Warning: Slow! Do not leave on unintentionally.
 DEBUG_worker_DAQ  = False
@@ -134,23 +137,24 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     # --------------------------------------------------------------------------
 
     def DAQ_update(self):
-        DEBUG_local = (True if self.dev.name == "PSU 2" else False)
+        DEBUG_local = True
+        if DEBUG_local: tick = get_tick()
 
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q V_meas")
+        # Clear input and output buffers of the device. Seems to resolve
+        # intermittent communication time-outs.
+        #self.dev.device.clear()
+
+        # Finish all operations at the device first
+        if not self.dev.wait_for_OPC(): return False
+
         if not self.dev.query_V_meas(): return False
-
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q I_meas")
         if not self.dev.query_I_meas(): return False
 
-        self.dev.wait_for_OPC()
-
-        # --------------------------------------------------------------
+        # --------------------
         #   Heater power PID
-        # --------------------------------------------------------------
-        # PID controllers work best when the process and control
-        # variables have a linear relationship.
+        # --------------------
+        # PID controllers work best when the process and control variables have
+        # a linear relationship.
         # Here:
         #   Process var: V (voltage)
         #   Control var: P (power)
@@ -159,11 +163,10 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         # Hence, we transform P into P_star
         #   Control var: P_star = sqrt(P)
         #   Relation   : P_star = sqrt(R) / V
-        # When we assume R remains constant (which is not the case as
-        # the resistance is a function of the heater temperature, but
-        # the dependence is expected to be insignificant in our small
-        # temperature range of 20 to 100 deg C), we now have linearized
-        # the PID feedback relation.
+        # When we assume R remains constant (which is not the case as the
+        # resistance is a function of the heater temperature, but the dependence
+        # is expected to be insignificant in our small temperature range of 20
+        # to 100 deg C), we now have linearized the PID feedback relation.
         self.dev.PID_power.set_mode((self.dev.state.ENA_output and
                                      self.dev.state.ENA_PID),
                                     self.dev.state.P_meas,
@@ -173,31 +176,21 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         if self.dev.PID_power.compute(np.sqrt(self.dev.state.P_meas)):
             # New PID output got computed -> send new voltage to PSU
             if self.dev.PID_power.output < 1:
-                # Power supply does not regulate well below 1 V,
-                # hence clamp to 0
+                # PSU does not regulate well below 1 V, hence clamp to 0
                 self.dev.PID_power.output = 0
-            if DEBUG_local: print("set V_source")
             if not self.dev.set_V_source(self.dev.PID_power.output):
                 return False
-            self.dev.wait_for_OPC()
+            # Wait for the set_V_source operation to finish.
+            # Takes ~ 300 ms to complete with wait_for_OPC.
+            if not self.dev.wait_for_OPC(): return False
 
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q ENA OCP")
         if not self.dev.query_ENA_OCP(): return False
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q status OC")
         if not self.dev.query_status_OC(): return False
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q status QC")
         if not self.dev.query_status_QC(): return False
-        self.dev.wait_for_OPC()
-        if DEBUG_local: print("q ENA output")
         if not self.dev.query_ENA_output(): return False
-        self.dev.wait_for_OPC()
 
-        # Explicitly force the output state to off when the output got
-        # disabled on a hardware level by a triggered protection or
-        # fault.
+        # Explicitly force the output state to off when the output got disabled
+        # on a hardware level by a triggered protection or fault.
         if self.dev.state.ENA_output & (self.dev.state.status_QC_OV |
                                         self.dev.state.status_QC_OC |
                                         self.dev.state.status_QC_PF |
@@ -206,10 +199,19 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
             self.dev.state.ENA_output = False
             self.dev.set_ENA_output(False)
 
+        if DEBUG_local:
+            tock = get_tick()
+            dprint("%s: done in %i" % (self.dev.name, tock - tick))
+
         # Check if there are errors in the device queue and retrieve all
         # if any and append these to 'dev.state.all_errors'.
-        if DEBUG_local: print("q all errors")
-        self.dev.query_all_errors_in_queue()
+        if DEBUG_local:
+            dprint("%s: query errors" % self.dev.name)
+            tick = get_tick()
+        self.dev.query_all_errors_in_queue(True)
+        if DEBUG_local:
+            tock = get_tick()
+            dprint("%s: stb done in %i" % (self.dev.name, tock - tick))
 
         return True
 
