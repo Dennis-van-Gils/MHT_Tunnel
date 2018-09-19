@@ -41,7 +41,7 @@ MAIN CONTENTS:
 __author__      = "Dennis van Gils"
 __authoremail__ = "vangils.dennis@gmail.com"
 __url__         = "https://github.com/Dennis-van-Gils/DvG_dev_Arduino"
-__date__        = "18-09-2018"
+__date__        = "19-09-2018"
 __version__     = "1.1.0"
 
 from enum import IntEnum, unique
@@ -500,7 +500,10 @@ class Dev_Base_pyqt(QtCore.QObject):
                 self.dev.is_alive = False
 
                 locker.unlock()
-                self.timer.stop()
+                if self.trigger_by == DAQ_trigger.INTERNAL_TIMER:
+                    self.timer.stop()
+                elif self.trigger_by == DAQ_trigger.EXTERNAL_WAKE_UP_CALL:
+                    self.stop()
                 self.outer.signal_DAQ_updated.emit()
                 self.outer.signal_connection_lost.emit()
                 return
