@@ -15,7 +15,7 @@ State variables that are an empty list [] indicate that they are uninitialized
 or that the previous query resulted in a communication error.
 
 Dennis van Gils
-14-06-2018
+20-09-2018
 """
 
 import time
@@ -238,7 +238,7 @@ class K3497xA():
             self.can_check_error_queue_by_polling_stb = False
         elif self._idn.lower().find("agilent") >= 0:
             # E.g. 'Agilent Technologies,34972A,MY49018071,1.16-1.12-02-02'
-            self.can_check_error_queue_by_polling_stb = True
+            self.can_check_error_queue_by_polling_stb = False  # Is actually True, but .stb malfunctions and causes locked up device
         else:
             self.can_check_error_queue_by_polling_stb = False
 
