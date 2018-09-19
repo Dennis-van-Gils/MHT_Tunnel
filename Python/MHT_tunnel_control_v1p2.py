@@ -9,17 +9,20 @@ import os
 import sys
 import psutil
 import visa
+import pylab
 import numpy as np
 
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets as QtWid
 from PyQt5.QtCore import QDateTime
+import pyqtgraph as pg
 
 import MHT_tunnel_constants as C
 import MHT_tunnel_GUI_v1p2  as MHT_tunnel_GUI
 
 from DvG_debug_functions import ANSI, dprint, print_fancy_traceback as pft
 from DvG_pyqt_FileLogger import FileLogger
+from DvG_pyqt_ChartHistory import ChartHistory
 from DvG_dev_Base__pyqt_lib import DAQ_trigger
 
 import DvG_dev_Arduino__fun_serial            as Arduino_functions
@@ -44,6 +47,9 @@ import DvG_dev_Compax3_step_navigator__pyqt_lib as step_nav_pyqt_lib
 cur_date_time = QDateTime.currentDateTime()
 str_cur_date  = cur_date_time.toString("dd-MM-yyyy")
 str_cur_time  = cur_date_time.toString("HH:mm:ss")
+
+fn_log = ""
+fn_log_mux2 = ""
 
 # Show debug info in terminal? Warning: slow! Do not leave on unintentionally.
 DEBUG = False
@@ -286,7 +292,7 @@ def my_Arduino_DAQ_update():
     # ---------------------------------------
 
     if file_logger.starting:
-        fn_log = ("d:/data/" + cur_date_time.toString("yyMMdd_HHmmss") + ".txt")
+        #fn_log = ("d:/data/" + cur_date_time.toString("yyMMdd_HHmmss") + ".txt")
         if file_logger.create_log(state.time, fn_log, mode='w'):
             file_logger.signal_set_recording_text.emit(
                 "Recording to file: " + fn_log)
@@ -603,6 +609,14 @@ def update_charts():
     window.CH_chiller_setpoint.curve.setVisible(
             window.chkbs_tunnel_temp[3].isChecked())
 
+    # Update 'thermistors' mux2 strip chart
+    [CH.update_curve() for CH in window.CHs_mux2]
+
+    # Show or hide curve depending on checkbox
+    for i in range(mux2_N_channels):
+        window.CHs_mux2[i].curve.setVisible(
+                window.chkbs_show_curves_mux2[i].isChecked())
+
     # Update curves heater power
     if not psus[0].is_alive:
         window.chkb_PSU_1.setChecked(False)
@@ -683,6 +697,9 @@ def change_history_axes(time_axis_factor, time_axis_range, time_axis_label):
     window.pi_flow_speed.setXRange(time_axis_range, 0)
     window.pi_flow_speed.setLabel('bottom', time_axis_label)
 
+    window.pi_mux2.setXRange(time_axis_range, 0)
+    window.pi_mux2.setLabel('bottom', time_axis_label)
+
     window.pi_heater_power.setXRange(time_axis_range, 0)
     window.pi_heater_power.setLabel('bottom', time_axis_label)
 
@@ -697,6 +714,10 @@ def change_history_axes(time_axis_factor, time_axis_range, time_axis_label):
     window.CH_tunnel_inlet.x_axis_divisor     = time_axis_factor
     window.CH_chiller_temp.x_axis_divisor     = time_axis_factor
     window.CH_chiller_setpoint.x_axis_divisor = time_axis_factor
+
+    for i in range(mux2_N_channels):
+        window.CHs_mux2[i].x_axis_divisor = time_axis_factor
+
     window.CH_power_PSU_1.x_axis_divisor      = time_axis_factor
     window.CH_power_PSU_2.x_axis_divisor      = time_axis_factor
     window.CH_power_PSU_3.x_axis_divisor      = time_axis_factor
@@ -955,10 +976,16 @@ def process_GVF_density_liquid():
 
 @QtCore.pyqtSlot()
 def process_pbtn_record_to_file():
+    global fn_log, fn_log_mux2
+    fn_log = ("d:/data/" + cur_date_time.toString("yyMMdd_HHmmss") + ".txt")
+    fn_log_mux2 = ("d:/data/" + cur_date_time.toString("yyMMdd_HHmmss") + ".mux2")
+
     if window.pbtn_record.isChecked():
         file_logger.starting = True
+        file_logger_mux2.starting = True
     else:
         file_logger.stopping = True
+        file_logger_mux2.stopping = True
 
 def _(): pass # Spyder IDE outline divider
 # ------------------------------------------------------------------------------
@@ -1026,6 +1053,7 @@ def stop_running():
     app.processEvents()
     ards_pyqt.close_all_threads()
     file_logger.close_log()
+    file_logger_mux2.close_log()
 
 @QtCore.pyqtSlot()
 def notify_connection_lost():
@@ -1066,6 +1094,7 @@ def about_to_quit():
     chiller_pyqt.close_all_threads()    # ThermoFlex chiller
     mfc_pyqt.close_all_threads()        # Bronkhorst mass flow controller
     mux1_pyqt.close_all_threads()       # Keysight 3497xA
+    mux2_pyqt.close_all_threads()       # Keysight 3497xA
     pt104_pyqt.close_all_threads()      # Picotech PT-104
 
     # Keysight power supplies
@@ -1109,6 +1138,8 @@ def about_to_quit():
     try: mfc.close()
     except: pass
     try: mux1.close()
+    except: pass
+    try: mux2.close()
     except: pass
     try: pt104.close()
     except: pass
@@ -1181,7 +1212,7 @@ def update_GUI_heater_control_extras():
 #   NOTE: no GUI changes are allowed in this function.
 # ------------------------------------------------------------------------------
 
-def mux1_check_OTP_routine():
+def DAQ_postprocess_MUX1_scan_function():
     # DEBUG info
     #dprint("thread: %s" % QtCore.QThread.currentThread().objectName())
 
@@ -1236,6 +1267,55 @@ def mux1_check_OTP_routine():
     elapsed_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
     for i in range(C.N_HEATER_TC):
         window.CHs_heater_TC[i].add_new_reading(elapsed_time, readings[i])
+
+def DAQ_postprocess_MUX2_scan_function():
+
+    if mux2_pyqt.is_MUX_scanning:
+        readings = mux2.state.readings
+        for i in range(mux2_N_channels):
+            if readings[i] > K3497xA_pyqt_lib.INFINITY_CAP:
+                readings[i] = np.nan
+    else:
+        readings = [np.nan] * mux2_N_channels
+        mux2.state.readings = readings
+
+    # Add readings to charts
+    elapsed_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
+    for i in range(mux2_N_channels):
+        window.CHs_mux2[i].add_new_reading(elapsed_time, readings[i])
+
+    # ----------------------------------------------------------------------
+    #   Logging to file
+    # ----------------------------------------------------------------------
+
+    if file_logger_mux2.starting:
+        if file_logger_mux2.create_log(elapsed_time, fn_log_mux2, mode='w'):
+            # Header
+            file_logger_mux2.write("[s]\t")
+            for i in range(mux2_N_channels - 1):
+                file_logger_mux2.write("[ohm]\t")
+            file_logger_mux2.write("[ohm]\n")
+            file_logger_mux2.write("time\t")
+            for i in range(mux2_N_channels - 1):
+                file_logger_mux2.write("CH%s\t" %
+                                       mux2.state.all_scan_list_channels[i])
+            file_logger_mux2.write("CH%s\n" %
+                                   mux2.state.all_scan_list_channels[-1])
+
+    if file_logger_mux2.stopping:
+        file_logger_mux2.close_log()
+
+    if file_logger_mux2.is_recording:
+        log_elapsed_time = (elapsed_time - file_logger_mux2.start_time)/1e3  # [sec]
+
+        # Add new data to the log
+        file_logger_mux2.write("%.3f" % log_elapsed_time)
+        for i in range(mux2_N_channels):
+            if len(mux2.state.readings) <= i:
+                file_logger_mux2.write("\t%.5e" % np.nan)
+            else:
+                file_logger_mux2.write("\t%.5e" % mux2.state.readings[i])
+        file_logger_mux2.write("\n")
 
 # ------------------------------------------------------------------------------
 #   Picotech PT104 routines
@@ -1429,7 +1509,7 @@ if __name__ == '__main__':
                 DAQ_trigger_by=DAQ_trigger.EXTERNAL_WAKE_UP_CALL))
 
     # DEBUG information
-    DEBUG_PSU = True
+    DEBUG_PSU = False
     psus_pyqt[0].worker_DAQ.DEBUG  = DEBUG_PSU
     psus_pyqt[0].worker_send.DEBUG = DEBUG_PSU
     psus_pyqt[0].worker_DAQ.DEBUG_color  = ANSI.YELLOW
@@ -1514,7 +1594,18 @@ if __name__ == '__main__':
     mux1_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
                     dev=mux1,
                     DAQ_update_interval_ms=C.MUX_1_SCANNING_INTERVAL,
-                    DAQ_postprocess_MUX_scan_function=mux1_check_OTP_routine)
+                    DAQ_postprocess_MUX_scan_function=
+                    DAQ_postprocess_MUX1_scan_function)
+
+    mux2 = K3497xA_functions.K3497xA(C.MUX_2_VISA_ADDRESS, name="MUX 2")
+    if mux2.connect(rm):
+        mux2.begin(C.MUX_2_SCPI_COMMANDS)
+
+    mux2_pyqt = K3497xA_pyqt_lib.K3497xA_pyqt(
+                    dev=mux2,
+                    DAQ_update_interval_ms=C.MUX_2_SCANNING_INTERVAL,
+                    DAQ_postprocess_MUX_scan_function=
+                    DAQ_postprocess_MUX2_scan_function)
 
     # --------------------------------------------------------------------------
     #   Create main window
@@ -1580,6 +1671,51 @@ if __name__ == '__main__':
     window.tab_heater_control.setLayout(vbox)
 
     # -----------------------
+    #   Tab: Thermistors
+    # -----------------------
+
+    mux2_pyqt.set_table_readings_format("%.4e")
+    mux2_pyqt.qgrp.setFixedWidth(420)
+
+    hbox1 = QtWid.QHBoxLayout()
+    hbox1.addWidget(mux2_pyqt.qgrp, stretch=0, alignment=QtCore.Qt.AlignTop)
+    hbox1.addWidget(window.gw_mux2, stretch=1)
+    hbox1.addLayout(window.vbox_mux2)
+
+    window.tab_thermistors.setLayout(hbox1)
+
+    # Create pens and chart histories depending on the number of scan channels
+
+    mux2_N_channels = len(mux2.state.all_scan_list_channels)
+
+    # Pen styles for plotting
+    PENS = [None] * mux2_N_channels
+    cm = pylab.get_cmap('gist_rainbow')
+    params = {'width': 2}
+    for i in range(mux2_N_channels):
+        color = cm(1.*i/mux2_N_channels)  # color will now be an RGBA tuple
+        color = np.array(color) * 255
+        PENS[i] = pg.mkPen(color=color, **params)
+
+    # Create Chart Histories (CH) and PlotDataItems and link them together
+    # Also add legend entries
+    window.CHs_mux2 = [None] * mux2_N_channels
+    window.chkbs_show_curves_mux2 = [None] * mux2_N_channels
+    for i in range(mux2_N_channels):
+        window.CHs_mux2[i] = ChartHistory(C.CH_SAMPLES_MUX2,
+                                          window.pi_mux2.plot(pen=PENS[i]))
+        window.legend_mux2.addItem(window.CHs_mux2[i].curve,
+                                   name=mux2.state.all_scan_list_channels[i])
+
+        # Add checkboxes for showing the curves
+        window.chkbs_show_curves_mux2[i] = QtWid.QCheckBox(
+                parent=window,
+                text=mux2.state.all_scan_list_channels[i],
+                checked=True)
+        window.grid_show_curves_mux2.addWidget(
+                window.chkbs_show_curves_mux2[i], i, 0)
+
+    # -----------------------
     #   Tab: Traverse
     # -----------------------
 
@@ -1606,6 +1742,8 @@ if __name__ == '__main__':
     file_logger = FileLogger()
     file_logger.signal_set_recording_text.connect(window.set_text_qpbt_record)
 
+    file_logger_mux2 = FileLogger()
+
     # --------------------------------------------------------------------------
     #   Start threads
     # --------------------------------------------------------------------------
@@ -1631,6 +1769,8 @@ if __name__ == '__main__':
     # Keysight 3497xA
     mux1_pyqt.start_thread_worker_DAQ()
     mux1_pyqt.start_thread_worker_send()
+    mux2_pyqt.start_thread_worker_DAQ()
+    mux2_pyqt.start_thread_worker_send()
 
     # ThermoFlex chiller
     chiller_pyqt.start_thread_worker_DAQ()

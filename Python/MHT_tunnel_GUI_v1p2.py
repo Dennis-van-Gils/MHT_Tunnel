@@ -137,12 +137,14 @@ class MainWindow(QtWid.QWidget):
         self.tab_main           = QtWid.QWidget()
         self.tab_chiller        = QtWid.QWidget()
         self.tab_heater_control = QtWid.QWidget()
+        self.tab_thermistors    = QtWid.QWidget()
         self.tab_traverse       = QtWid.QWidget()
         self.tab_filling        = QtWid.QWidget()
         self.tab_debug          = QtWid.QWidget()
 
         self.tabs.addTab(self.tab_main          , "Main")
         self.tabs.addTab(self.tab_heater_control, "Heater control")
+        self.tabs.addTab(self.tab_thermistors   , "Thermistors")
         self.tabs.addTab(self.tab_chiller       , "Chiller")
         self.tabs.addTab(self.tab_traverse      , "Traverse")
         self.tabs.addTab(self.tab_debug         , "Debug")
@@ -796,6 +798,72 @@ class MainWindow(QtWid.QWidget):
         legend.addItem(self.CH_power_PSU_1.curve, name="#1")
         legend.addItem(self.CH_power_PSU_2.curve, name="#2")
         legend.addItem(self.CH_power_PSU_3.curve, name="#3")
+
+        # ----------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+        #
+        #   TAB PAGE: Thermistors
+        #
+        # ----------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+
+        def chart_thermistors(): pass # Spyder IDE outline item
+        # ----------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+        #
+        #   Chart: Thermistors
+        #
+        # ----------------------------------------------------------------------
+        # ----------------------------------------------------------------------
+
+         # GraphicsWindow
+        self.gw_mux2 = pg.GraphicsWindow()
+        self.gw_mux2.setBackground([20, 20, 20])
+
+        # PlotItem
+        self.pi_mux2 = self.gw_mux2.addPlot()
+        self.pi_mux2.setTitle(
+          '<span style="font-size:12pt">Thermistors</span>')
+        self.pi_mux2.setLabel('bottom',
+          '<span style="font-size:12pt">history (min)</span>')
+        self.pi_mux2.setLabel('left',
+          '<span style="font-size:12pt">misc. units</span>')
+        self.pi_mux2.showGrid(x=1, y=1)
+        self.pi_mux2.setMenuEnabled(True)
+        self.pi_mux2.enableAutoRange(axis=pg.ViewBox.XAxis, enable=False)
+        self.pi_mux2.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+        self.pi_mux2.setAutoVisible(y=True)
+
+        # Viewbox properties for the legend
+        vb = self.gw_mux2.addViewBox(enableMenu=False)
+        vb.setMaximumWidth(80)
+
+        # Legend
+        self.legend_mux2 = pg.LegendItem()
+        self.legend_mux2.setParentItem(vb)
+        self.legend_mux2.anchor((0,0), (0,0), offset=(1, 10))
+        self.legend_mux2.setFixedWidth(75)
+        self.legend_mux2.setScale(1)
+
+        # ----------------------------------------------------------------------
+        #   Show curves selection
+        # ----------------------------------------------------------------------
+
+        self.grid_show_curves_mux2 = QtWid.QGridLayout()
+        self.grid_show_curves_mux2.setVerticalSpacing(0)
+
+        qgrp_show_curves_mux2 = QtWid.QGroupBox("Show")
+        qgrp_show_curves_mux2.setStyleSheet(SS_GROUP)
+        qgrp_show_curves_mux2.setLayout(self.grid_show_curves_mux2)
+
+        # ----------------------------------------------------------------------
+        #   Bottom grid
+        # ----------------------------------------------------------------------
+
+        self.vbox_mux2 = QtWid.QVBoxLayout()
+        self.vbox_mux2.addWidget(qgrp_show_curves_mux2, stretch=0,
+                        alignment=QtCore.Qt.AlignTop)
+        self.vbox_mux2.addStretch(1)
 
         # ----------------------------------------------------------------------
         # ----------------------------------------------------------------------

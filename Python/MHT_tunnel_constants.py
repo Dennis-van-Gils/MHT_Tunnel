@@ -35,6 +35,7 @@ CH_SAMPLES_HEATER_POWER = 1800
 CH_SAMPLES_FLOW_SPEED   = 18000     # @ UPDATE_INTERVAL_ARDUINOS --> 30 min
 CH_SAMPLES_PT104        = 1800      # @ UPDATE_INTERVAL_PT104    --> 30 min
 CH_SAMPLES_CHILLER      = 1800      # @ UPDATE_INTERVAL_CHILLER  --> 30 min
+CH_SAMPLES_MUX2         = 1800      # @ UPDATE_INTERVAL_CHILLER  --> 30 min
 CH_SAMPLES_DAQ_RATE     = 1800      # @ UPDATE_INTERVAL_DAQ_RATE &
                                     # CALC_DAQ_RATE_EVERY_N_ITER --> 30 min
 
@@ -61,8 +62,8 @@ MUX_1_SCPI_COMMANDS     = [
 # MUX 2: read out thermistors
 # HEWLETT-PACKARD 34970A
 MUX_2_VISA_ADDRESS      = "GPIB::09::INSTR"
-MUX_2_SCANNING_INTERVAL = 1000      # 1000 [ms]
-MUX_2_SCAN_LIST         = "(@101:107)"
+MUX_2_SCANNING_INTERVAL = 500      # 1000 [ms]
+MUX_2_SCAN_LIST         = "(@101)"
 MUX_2_SCPI_COMMANDS = [
         "rout:open %s" % MUX_2_SCAN_LIST,
         "conf:res 1e5,%s" % MUX_2_SCAN_LIST,
