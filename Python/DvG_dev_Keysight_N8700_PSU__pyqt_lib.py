@@ -142,7 +142,7 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
 
         # Clear input and output buffers of the device. Seems to resolve
         # intermittent communication time-outs.
-        #self.dev.device.clear()
+        self.dev.device.clear()
 
         # Finish all operations at the device first
         if not self.dev.wait_for_OPC(): return False

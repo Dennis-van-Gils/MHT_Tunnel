@@ -418,20 +418,20 @@ class PSU():
             print("ERROR: Device is not connected yet or already closed.")
             return
 
-        if (self.device.stb & 0b100) == 0b100:
-            # There are unread errors in the queue available. Retrieve all.
-            while True:
-                if self.query_error():
-                    if self.state.error is None:
-                        break
-                    else:
-                        self.state.all_errors.append(self.state.error)
-                else:
+        #if (self.device.stb & 0b100) == 0b100:
+        # There are unread errors in the queue available. Retrieve all.
+        while True:
+            if self.query_error():
+                if self.state.error is None:
                     break
+                else:
+                    self.state.all_errors.append(self.state.error)
+            else:
+                break
 
-            if verbose: # DEBUG INFO
-                for error in self.state.all_errors:
-                    print("  %s" % error)
+        if verbose: # DEBUG INFO
+            for error in self.state.all_errors:
+                print("  %s" % error)
 
     def query_status_QC(self, verbose=False):
         """ Read out the questionable condition status registers of the device
