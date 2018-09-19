@@ -137,7 +137,7 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
     # --------------------------------------------------------------------------
 
     def DAQ_update(self):
-        DEBUG_local = True
+        DEBUG_local = False
         if DEBUG_local: tick = get_tick()
 
         # Clear input and output buffers of the device. Seems to resolve
