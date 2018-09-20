@@ -1,1 +1,3 @@
 Replace lists with tuples : (success, ans) instead of [success, ans]
+Fix incorrect unit scale in plot flow speed
+Remove print SCPI error codes of PSU
