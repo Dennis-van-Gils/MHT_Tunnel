@@ -208,7 +208,7 @@ class PSU_pyqt(Dev_Base_pyqt_lib.Dev_Base_pyqt, QtCore.QObject):
         if DEBUG_local:
             dprint("%s: query errors" % self.dev.name)
             tick = get_tick()
-        self.dev.query_all_errors_in_queue(True)
+        self.dev.query_all_errors_in_queue()
         if DEBUG_local:
             tock = get_tick()
             dprint("%s: stb done in %i" % (self.dev.name, tock - tick))
