@@ -7,7 +7,7 @@ Note: Constants concerning GUI elements should be defined in UI_MainWindow.py
 only exception being the chart history lengths
 
 Dennis van Gils
-21-02-2018
+24-09-2018
 """
 
 from enum import IntEnum, unique
@@ -79,7 +79,7 @@ AMS_3 = 0.3 * 0.04              # [m2]
 
 # The maximum flow rate that corresponds to 20 mA output of the mass flow meter
 # NOTE: this can be explicitly set in the flow meter parameter menu
-QMAX_FLOW_METER = 30            # [m3/h]
+QMAX_FLOW_METER = 80            # [m3/h]
 
 # Min and max values for the temperature setpoint that can be send to the
 # chiller over RS232. Note that these values are separate from the internal

@@ -35,7 +35,7 @@
       Clocked max. DAQ rate in Python: variable ~120 Hz
 
   Dennis van Gils
-  07-09-2018
+  24-09-2018
 *******************************************************************************/
 
 #include <Arduino.h>
@@ -143,7 +143,7 @@ State_Arduino_1 state;
 
 // The maximum flow rate that corresponds to 20 mA output of the mass flow meter
 // NOTE: this can be explicitly set in the flow meter parameter menu
-#define QMAX_FLOW_METER 30        // m3/h
+#define QMAX_FLOW_METER 80        // m3/h
 
 // Two sets of PID parameters are used.
 // Set 1 is tuned for fast settling times when a new setpoint has been set.
