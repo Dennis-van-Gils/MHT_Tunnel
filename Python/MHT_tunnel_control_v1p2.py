@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Dennis van Gils
-18-09-2018
+24-09-2018
 """
 
 import os
@@ -565,7 +565,7 @@ def update_charts_Arduinos():
     # Update curve tunnel flow speed
     # Note that the graph is being fed with [m3/h] and needs to be transformed
     # to [cm/s] depending on the selected measurement section.
-    window.CH_flow_speed.y_axis_divisor = 1.0 / state.area_meas_section / 36.0
+    window.CH_flow_speed.y_axis_divisor = state.area_meas_section * 36.0
     window.CH_flow_speed.update_curve()
 
     # Update set_pump_speed curve
