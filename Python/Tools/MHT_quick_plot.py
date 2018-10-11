@@ -6,7 +6,7 @@ MHT_quick_plot.py
 Plot timeseries of recorded run for quick inspection and saves image to disk
 
 Dennis van Gils
-06-07-2018
+10-10-2018
 """
 
 import sys
@@ -92,7 +92,7 @@ def MHT_quick_plot(mht, filename):
         ax1.plot(t, T_TCs[i], '-', color=color, linewidth=width,
                  label=("#%02i" % (i+1)))
 
-    ax1.set_title("%s\nHeater temperatures (%s 1 K)" %
+    ax1.set_title("%s\nHeater temperatures (%s2.2 K)" %
                   (mht.filename, CHAR_PM))
     ax1.set_xlabel("time (s)")
     ax1.set_ylabel("temperature (%sC)" % CHAR_DEG)
@@ -104,8 +104,11 @@ def MHT_quick_plot(mht, filename):
 
     ax2.plot(t, mht.T_outlet, color=cm[5], label="outlet")
     ax2.plot(t, mht.T_inlet, color=cm[1], label="inlet")
-    
-    ax2.set_title("Tunnel temperatures (%s 0.015 K)" % CHAR_PM)
+
+    if not np.all(np.isnan(mht.T_ambient)):
+        ax2.plot(t, mht.T_ambient, color=[1, 1, 1], label="ambient")
+
+    ax2.set_title("Tunnel temperatures (%s0.03 K)" % CHAR_PM)
     ax2.set_xlabel("time (s)")
     ax2.set_ylabel("temperature (%sC)" % CHAR_DEG)
     ax2.grid(True)
@@ -117,8 +120,8 @@ def MHT_quick_plot(mht, filename):
     ax3.plot(t, mht.T_chill_setp, '-', color=cm[4], lineWidth=4,
              label="setp.")
     ax3.plot(t, mht.T_chill, color=cm[2], label="chiller")
-    
-    ax3.set_title("Chiller temperatures (%s 0.1 K)" % CHAR_PM)
+
+    ax3.set_title("Chiller temperatures (%s0.1 K)" % CHAR_PM)
     ax3.set_xlabel("time (s)")
     ax3.set_ylabel("temperature (%sC)" % CHAR_DEG)
     ax3.grid(True)
@@ -128,7 +131,7 @@ def MHT_quick_plot(mht, filename):
     # -------------------------------------------------------------
 
     v_flow = mht.Q_tunnel / mht.area_meas_section / 36.0  # [cm/s]
-    
+
     area_meas_section = "%.3f" % mht.area_meas_section
     if mht.area_meas_section == 0.012:
         area_meas_section = "0.3 x 0.04"
@@ -165,7 +168,7 @@ def MHT_quick_plot(mht, filename):
     if not np.isnan(mht.P_PSU_3.sum()):
         ax5.plot(t, mht.P_PSU_3, color=cm[1], label="#3")
 
-    ax5.set_title("PSU power (%s 0.05 W)" % CHAR_PM)
+    ax5.set_title("PSU power (%s0.3 W)" % CHAR_PM)
     ax5.set_xlabel("time (s)")
     ax5.set_ylabel("power (W)")
     ax5.grid(True)
@@ -182,7 +185,7 @@ def MHT_quick_plot(mht, filename):
     ax6.plot(t, GVF_pct, color=color, label="GVF_pct")
     ax6.set_title("Bubble injection")
     ax6.set_xlabel("time (s)")
-    ax6.set_ylabel("gas vol. fraction (%)", color=color)
+    ax6.set_ylabel("gas vol. fraction (%s0.5 %%)" % CHAR_PM, color=color)
     ax6.tick_params(axis='y', labelcolor=color)
     ax6.grid(True)
 
@@ -197,7 +200,7 @@ def MHT_quick_plot(mht, filename):
     # --------------------------------------------------------------------------
     ax_w = 0.34
     ax_h = 0.23
-    
+
     ax1.set_position ([0.07, 0.707, ax_w, ax_h])
     ax2.set_position ([0.07, 0.387, ax_w, ax_h])
     ax3.set_position ([0.07, 0.067, ax_w, ax_h])

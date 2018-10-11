@@ -5,7 +5,7 @@ MHT_read_file
 Reads in a log file acquired with the Python MHT Tunnel Control program.
 
 Dennis van Gils
-29-06-2018
+10-10-2018
 """
 
 import numpy as np
@@ -38,6 +38,7 @@ class MHT():
         self.T_TC_10       = np.array([])
         self.T_TC_11       = np.array([])
         self.T_TC_12       = np.array([])
+        self.T_ambient     = np.array([])
         self.T_inlet       = np.array([])
         self.T_outlet      = np.array([])
         self.T_chill_setp  = np.array([])
@@ -131,6 +132,7 @@ def MHT_read_file(filepath=None):
         mht.T_TC_10       = tmp_table['T_TC_10']
         mht.T_TC_11       = tmp_table['T_TC_11']
         mht.T_TC_12       = tmp_table['T_TC_12']
+        mht.T_ambient     = tmp_table['T_ambient']
         mht.T_inlet       = tmp_table['T_inlet']
         mht.T_outlet      = tmp_table['T_outlet']
         mht.T_chill_setp  = tmp_table['T_chill_setp']
