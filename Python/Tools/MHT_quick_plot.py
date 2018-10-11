@@ -6,7 +6,7 @@ MHT_quick_plot.py
 Plot timeseries of recorded run for quick inspection and saves image to disk
 
 Dennis van Gils
-10-10-2018
+11-10-2018
 """
 
 import sys
@@ -53,6 +53,7 @@ def MHT_quick_plot(mht, filename):
     mpl.rcParams['axes.titlesize'] = 14
     mpl.rcParams['axes.labelsize'] = 14
     mpl.rcParams["axes.titleweight"] = "bold"
+    mpl.rcParams['axes.formatter.useoffset'] = False
     #mpl.rcParams["axes.labelweight"] = "bold"
     mpl.rcParams['lines.linewidth'] = 2
     mpl.rcParams['grid.color'] = "0.25"
