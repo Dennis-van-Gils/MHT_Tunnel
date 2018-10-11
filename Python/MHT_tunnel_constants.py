@@ -7,7 +7,7 @@ Note: Constants concerning GUI elements should be defined in UI_MainWindow.py
 only exception being the chart history lengths
 
 Dennis van Gils
-24-09-2018
+11-10-2018
 """
 
 from enum import IntEnum, unique
@@ -99,8 +99,8 @@ SERIAL_MFC_1 = "M16216843A"
 # Picotech PT-104 settings
 PT104_IP_ADDRESS    = "10.10.100.2"
 PT104_PORT          = 1234
-PT104_ENA_CHANNELS  = [1, 1, 0, 0]
-PT104_GAIN_CHANNELS = [1, 1, 0, 0]
+PT104_ENA_CHANNELS  = [1, 1, 1, 0]
+PT104_GAIN_CHANNELS = [1, 1, 1, 0]
 
 # Gas volume fraction estimation
 GRAVITY = 9.81                  # [m/s2]
