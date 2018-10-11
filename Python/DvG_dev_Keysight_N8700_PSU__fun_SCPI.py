@@ -11,7 +11,7 @@ State variables that read numpy.nan indicate that they are uninitialized or that
 the previous query resulted in a communication error.
 
 Dennis van Gils
-19-09-2018
+10-10-2018
 """
 
 import os
@@ -187,7 +187,7 @@ class PSU():
         success &= self.set_PON_off()  # Force power-on state off for safety
 
         self.wait_for_OPC()
-        self.prepare_wait_for_OPC_indefinitely()
+        #self.prepare_wait_for_OPC_indefinitely() # COMMENTED OUT: .stb fails intermittently, perhaps due to the USB isolator
 
         success &= self.query_OVP_level()
         success &= self.query_V_source()
@@ -198,7 +198,8 @@ class PSU():
 
         self.query_all_errors_in_queue()
 
-        self.wait_for_OPC_indefinitely()
+        #self.wait_for_OPC_indefinitely()         # COMMENTED OUT: .stb fails intermittently, perhaps due to the USB isolator
+        self.wait_for_OPC()
 
         return success
 
