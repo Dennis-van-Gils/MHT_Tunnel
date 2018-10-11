@@ -1278,6 +1278,7 @@ class MainWindow(QtWid.QWidget):
             self.CH_chiller_temp.clear()
             self.CH_tunnel_inlet.clear()
             self.CH_tunnel_outlet.clear()
+            self.CH_ambient.clear()
             self.CH_set_pump_speed.clear()
             self.CH_power_PSU_1.clear()
             self.CH_power_PSU_2.clear()
