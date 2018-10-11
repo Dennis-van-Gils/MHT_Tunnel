@@ -1004,6 +1004,10 @@ def soft_reset():
     ards_pyqt.send(ard2, "soft_reset")
     app.processEvents()
 
+    # Stop multiplexers
+    mux1_pyqt.stop_MUX_scan()
+    mux2_pyqt.stop_MUX_scan()
+
     # Reset GUI elements
     window.set_pump_speed_pct.setText("0.0")
     window.set_pump_speed_mA.setText("4.00")
