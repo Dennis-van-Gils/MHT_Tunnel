@@ -132,7 +132,10 @@ def MHT_read_file(filepath=None):
         mht.T_TC_10       = tmp_table['T_TC_10']
         mht.T_TC_11       = tmp_table['T_TC_11']
         mht.T_TC_12       = tmp_table['T_TC_12']
-        mht.T_ambient     = tmp_table['T_ambient']
+        try:
+            mht.T_ambient = tmp_table['T_ambient']
+        except ValueError:
+            mht.T_ambient = np.nan * len(mht.time)
         mht.T_inlet       = tmp_table['T_inlet']
         mht.T_outlet      = tmp_table['T_outlet']
         mht.T_chill_setp  = tmp_table['T_chill_setp']
