@@ -310,7 +310,7 @@ def my_Arduino_DAQ_update():
             file_logger.write("[s]\t[HH:mm:ss]\t"
                              "[m3/h]\t[m3/h]\t[pct]\t"
                              "[ln/min]\t[mbar]\t" +
-                             ("[" + u'\N{DEGREE SIGN}' "C]\t") * 16 +
+                             ("[" + u'\N{DEGREE SIGN}' "C]\t") * 17 +
                              "[W]\t[W]\t[W]\n")
             file_logger.write("time\twall_time\t"
                              "Q_tunnel_setp\tQ_tunnel\tS_pump_setp\t"
