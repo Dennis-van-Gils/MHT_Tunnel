@@ -3,12 +3,15 @@
 """
 MHT_read_file
 Reads in a log file acquired with the Python MHT Tunnel Control program.
+A 2nd order Butterworth low-pass filter with a cut-off frequency of 0.1 Hz and
+zero-phase distortion will be applied to all sensor timeseries. Validated.
 
 Dennis van Gils
-10-10-2018
+11-10-2018
 """
 
 import numpy as np
+from scipy import signal
 from pathlib import Path
 
 class MHT():
@@ -143,5 +146,34 @@ def MHT_read_file(filepath=None):
         mht.P_PSU_1       = tmp_table['P_PSU_1']
         mht.P_PSU_2       = tmp_table['P_PSU_2']
         mht.P_PSU_3       = tmp_table['P_PSU_3']
-
+        
+        if 1:
+            # Apply low-pass filtering to specific timeseries
+            f_s = 1/np.mean(np.diff(mht.time))  # Original sampling frequency [Hz]
+            f3dB_LP = 0.1                       # Low-pass cut-off frequency: 0.1 [Hz]
+            filt_b, filt_a = signal.butter(2, f3dB_LP / (f_s/2), 'lowpass');
+            
+            mht.Q_tunnel  = signal.filtfilt(filt_b, filt_a, mht.Q_tunnel)
+            mht.Q_bubbles = signal.filtfilt(filt_b, filt_a, mht.Q_bubbles)
+            mht.Pdiff_GVF = signal.filtfilt(filt_b, filt_a, mht.Pdiff_GVF)
+            mht.T_TC_01   = signal.filtfilt(filt_b, filt_a, mht.T_TC_01)
+            mht.T_TC_02   = signal.filtfilt(filt_b, filt_a, mht.T_TC_02)
+            mht.T_TC_03   = signal.filtfilt(filt_b, filt_a, mht.T_TC_03)
+            mht.T_TC_04   = signal.filtfilt(filt_b, filt_a, mht.T_TC_04)
+            mht.T_TC_05   = signal.filtfilt(filt_b, filt_a, mht.T_TC_05)
+            mht.T_TC_06   = signal.filtfilt(filt_b, filt_a, mht.T_TC_06)
+            mht.T_TC_07   = signal.filtfilt(filt_b, filt_a, mht.T_TC_07)
+            mht.T_TC_08   = signal.filtfilt(filt_b, filt_a, mht.T_TC_08)
+            mht.T_TC_09   = signal.filtfilt(filt_b, filt_a, mht.T_TC_09)
+            mht.T_TC_10   = signal.filtfilt(filt_b, filt_a, mht.T_TC_10)
+            mht.T_TC_11   = signal.filtfilt(filt_b, filt_a, mht.T_TC_11)
+            mht.T_TC_12   = signal.filtfilt(filt_b, filt_a, mht.T_TC_12)
+            mht.T_ambient = signal.filtfilt(filt_b, filt_a, mht.T_ambient)
+            mht.T_inlet   = signal.filtfilt(filt_b, filt_a, mht.T_inlet)
+            mht.T_outlet  = signal.filtfilt(filt_b, filt_a, mht.T_outlet)
+            mht.T_chill   = signal.filtfilt(filt_b, filt_a, mht.T_chill)
+            mht.P_PSU_1   = signal.filtfilt(filt_b, filt_a, mht.P_PSU_1)
+            mht.P_PSU_2   = signal.filtfilt(filt_b, filt_a, mht.P_PSU_2)
+            mht.P_PSU_3   = signal.filtfilt(filt_b, filt_a, mht.P_PSU_3)
+        
     return mht
