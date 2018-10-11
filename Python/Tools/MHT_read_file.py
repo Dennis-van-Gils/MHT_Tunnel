@@ -168,7 +168,10 @@ def MHT_read_file(filepath=None):
             mht.T_TC_10   = signal.filtfilt(filt_b, filt_a, mht.T_TC_10)
             mht.T_TC_11   = signal.filtfilt(filt_b, filt_a, mht.T_TC_11)
             mht.T_TC_12   = signal.filtfilt(filt_b, filt_a, mht.T_TC_12)
-            mht.T_ambient = signal.filtfilt(filt_b, filt_a, mht.T_ambient)
+            try:
+              mht.T_ambient = signal.filtfilt(filt_b, filt_a, mht.T_ambient)
+            except:
+              pass
             mht.T_inlet   = signal.filtfilt(filt_b, filt_a, mht.T_inlet)
             mht.T_outlet  = signal.filtfilt(filt_b, filt_a, mht.T_outlet)
             mht.T_chill   = signal.filtfilt(filt_b, filt_a, mht.T_chill)
