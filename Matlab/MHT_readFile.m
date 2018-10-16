@@ -1,4 +1,4 @@
-function MHT = MHT_readFile(fn, prevent_LP_filter)
+function MHT = MHT_readFile(varargin)
 % Reads in a log file acquired with the Python MHT Tunnel Control program.
 % A 2nd order Butterworth low-pass filter with a cut-off frequency of
 % 0.1 Hz and zero-phase distortion will be applied to all sensor
@@ -16,27 +16,24 @@ function MHT = MHT_readFile(fn, prevent_LP_filter)
 %    MHT structure: containing header information and timeseries fields
 %
 % Dennis van Gils
-% 11-10-2018
+% 16-10-2018
 
 % -------------------------------------------------------------------------
 %   Check input arguments
 % -------------------------------------------------------------------------  
 
-if nargin < 1
-  prevent_LP_filter = false;
+fn = [];
+prevent_LP_filter = false;
+
+if nargin == 1
+  fn = varargin{1};
+elseif nargin == 2
+  fn = varargin{1};
+  prevent_LP_filter = varargin{2};
 end
 
-fPrompt = 0;
-if nargin == 0
-  fPrompt = 1;
-else
-  if isempty(fn)
-    fPrompt = 1;
-  end
-end
-
-if fPrompt
-   % Prompt the user to browse to the file to read
+if isempty(fn)
+  % Prompt the user to browse to the file to read
   [fn, pathName] = uigetfile({'*.txt'; '*.*'}, 'Select .txt file');
 
   if fn == 0
@@ -141,7 +138,7 @@ MHT = orderfields(MHT, [nFields-5:nFields 1:nFields-6]);
 if not(prevent_LP_filter)
   f_s = 1/mean(diff(MHT.time)); % Original sampling frequency [Hz]
   f3dB_LP = 0.1;                % Low-pass cut-off frequency: 0.1 [Hz]
-  [filt_b, filt_a] = butter(2, f3dB_LP / (f_s/2), 'low');
+  [filt_b, filt_a] = butter(2, f3dB_LP / (f_s/2), 'low'); % 2nd order, low
 
   fields = fieldnames(MHT);
   for iField = 1:nFields
