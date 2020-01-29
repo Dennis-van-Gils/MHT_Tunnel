@@ -43,7 +43,7 @@ CH_SAMPLES_DAQ_RATE     = 1800      # @ UPDATE_INTERVAL_DAQ_RATE &
 N_HEATER_TC = 12
 
 # Over-temperature protection
-OTP_MAX_TEMP_DEGC = 95              # 95 [deg C]
+OTP_MAX_TEMP_DEGC = 110             # 95 [deg C], edit 29-01-2020, increased to 110'C
 
 # MUX 1: read out thermocouples inside heaters
 # Agilent Technologies 34972A
