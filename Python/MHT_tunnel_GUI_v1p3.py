@@ -26,7 +26,7 @@ from DvG_pyqt_controls import (create_LED_indicator,
                                create_Toggle_button,
                                create_Toggle_button_2,
                                create_Toggle_button_3,
-                               SS_GROUP, SS_TEXT_MSGS,
+                               SS_GROUP,
                                SS_TEXTBOX_READ_ONLY,
                                SS_TITLE)
 from DvG_pyqt_ChartHistory import ChartHistory
@@ -1153,9 +1153,8 @@ class MainWindow(QtWid.QWidget):
             QtCore.Qt.ScrollBarAlwaysOff)
         self.FS_text_msgs.ensureCursorVisible()
         self.FS_text_msgs.setMinimumWidth(270)
-        self.FS_text_msgs.setEnabled(False)
+        self.FS_text_msgs.setEnabled(True)
         self.FS_text_msgs.setReadOnly(True)
-        self.FS_text_msgs.setStyleSheet(SS_TEXT_MSGS)
         self.FS_text_msgs.setFont(FONT_MONOSPACE)
 
         grid = QtWid.QGridLayout()
